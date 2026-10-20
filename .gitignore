@@ -1,0 +1,7 @@
+# Cloud Server — keep source files, exclude runtime artifacts only
+/.env
+/storage/logs/*.log
+/storage/clockwork/*
+/storage/framework/cache/data/*
+/storage/framework/sessions/*
+/storage/framework/views/*
