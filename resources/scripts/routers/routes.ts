@@ -1,5 +1,5 @@
 import { IconProp } from '@fortawesome/fontawesome-svg-core';
-import React, { lazy } from 'react';
+import React from 'react';
 import ServerConsole from '@/components/server/console/ServerConsoleContainer';
 import DatabasesContainer from '@/components/server/databases/DatabasesContainer';
 import ScheduleContainer from '@/components/server/schedules/ScheduleContainer';
@@ -14,6 +14,8 @@ import AccountApiContainer from '@/components/dashboard/AccountApiContainer';
 import AccountSSHContainer from '@/components/dashboard/ssh/AccountSSHContainer';
 import ActivityLogContainer from '@/components/dashboard/activity/ActivityLogContainer';
 import ServerActivityLogContainer from '@/components/server/ServerActivityLogContainer';
+import FileEditContainer from '@/components/server/files/FileEditContainer';
+import ScheduleEditContainer from '@/components/server/schedules/ScheduleEditContainer';
 import {
     faBackward,
     faClock,
@@ -30,13 +32,14 @@ import {
     faUser,
 } from '@fortawesome/free-solid-svg-icons';
 
+// Cloud Server: previously these two were lazy-loaded, but the
+// react-hot-loader + lazy chunk wiring crashes on minified
+// production bundles (the same root cause as the dashboard
+// black-screen bug). Eager-importing them keeps the server
+// sub-routes (file edit / schedule edit) working reliably.
+//
 // Each of the router files is already code split out appropriately — so
 // all of the items above will only be loaded in when that router is loaded.
-//
-// These specific lazy loaded routes are to avoid loading in heavy screens
-// for the server dashboard when they're only needed for specific instances.
-const FileEditContainer = lazy(() => import('@/components/server/files/FileEditContainer'));
-const ScheduleEditContainer = lazy(() => import('@/components/server/schedules/ScheduleEditContainer'));
 
 interface RouteDefinition {
     path: string;

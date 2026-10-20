@@ -1,18 +1,29 @@
-import { ComponentType, lazy } from 'react';
+import { ComponentType } from 'react';
+import EulaModalFeature from '@feature/eula/EulaModalFeature';
+import JavaVersionModalFeature from '@feature/JavaVersionModalFeature';
+import GSLTokenModalFeature from '@feature/GSLTokenModalFeature';
+import PIDLimitModalFeature from '@feature/PIDLimitModalFeature';
+import SteamDiskSpaceFeature from '@feature/SteamDiskSpaceFeature';
+import HytaleOauthRequireFeature from '@feature/HytaleOauthRequireFeature';
 
 /**
- * Custom features should be registered here as lazy components so that they do
- * not impact the generated JS bundle size. They will be automatically loaded in
- * whenever they are actually loaded for the client (which may be never, depending
- * on the feature and the egg).
+ * Cloud Server: previously these were lazy-loaded, but the
+ * react-hot-loader + lazy chunk wiring crashes on minified
+ * production bundles (the same root cause as the dashboard
+ * black-screen bug). Eager-importing them keeps the server
+ * feature modals (EULA / Java / GSL / PID / Steam / Hytale)
+ * working reliably when an egg triggers them.
+ *
+ * Custom features should be registered here so that they are
+ * available to be rendered when an egg needs them.
  */
 const features: Record<string, ComponentType> = {
-    eula: lazy(() => import('@feature/eula/EulaModalFeature')),
-    java_version: lazy(() => import('@feature/JavaVersionModalFeature')),
-    gsl_token: lazy(() => import('@feature/GSLTokenModalFeature')),
-    pid_limit: lazy(() => import('@feature/PIDLimitModalFeature')),
-    steam_disk_space: lazy(() => import('@feature/SteamDiskSpaceFeature')),
-    hytale_oauth: lazy(() => import('@feature/HytaleOauthRequireFeature')),
+    eula: EulaModalFeature,
+    java_version: JavaVersionModalFeature,
+    gsl_token: GSLTokenModalFeature,
+    pid_limit: PIDLimitModalFeature,
+    steam_disk_space: SteamDiskSpaceFeature,
+    hytale_oauth: HytaleOauthRequireFeature,
 };
 
 export default features;
