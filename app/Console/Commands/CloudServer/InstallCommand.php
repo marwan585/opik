@@ -113,7 +113,7 @@ class InstallCommand extends Command
         // ───────────────────────────────────────────────────────────────────
         // Step 6: Verify the admin routes are protected
         // ───────────────────────────────────────────────────────────────────
-        $this->info('[6/7] Verifying protected admin routes...');
+        $this->info('[6/8] Verifying protected admin routes...');
         $routesFile = base_path('routes/admin.php');
         $routesContent = File::get($routesFile);
         $protectedSections = ['locations', 'databases', 'nodes', 'mounts', 'nests', 'settings', 'users'];
@@ -135,9 +135,20 @@ class InstallCommand extends Command
         $this->line("   Total protected routes: {$protectedCount}");
 
         // ───────────────────────────────────────────────────────────────────
-        // Step 7: Verify the auto-suspend scheduler is registered
+        // Step 7: Clean up stale bundle files from public/assets/
         // ───────────────────────────────────────────────────────────────────
-        $this->info('[7/7] Verifying auto-suspend scheduler...');
+        $this->info('[7/8] Cleaning up stale JS bundle files...');
+        try {
+            $this->call('cloudserver:cleanup-bundles', ['--force' => true]);
+        } catch (\Throwable $e) {
+            $this->warn('   ⚠ Bundle cleanup skipped: ' . $e->getMessage());
+        }
+
+
+        // ───────────────────────────────────────────────────────────────────
+        // Step 8: Verify the auto-suspend scheduler is registered
+        // ───────────────────────────────────────────────────────────────────
+        $this->info('[8/8] Verifying auto-suspend scheduler...');
         $consoleKernelPath = base_path('app/Console/Kernel.php');
         if (File::exists($consoleKernelPath) && str_contains(File::get($consoleKernelPath), 'cloudserver:autosuspend')) {
             $this->line('   ✓ schedule `cloudserver:autosuspend` registered (every 5 minutes)');
