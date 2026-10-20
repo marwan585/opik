@@ -1,4 +1,7 @@
-assets
-assets/*
-!assets/svgs
-!assets/svgs/*.svg
+# Cloud Server — ship pre-compiled frontend assets so users don't
+# need to run `yarn build:production` themselves. The original
+# NookTheme upstream only ships the svgs/ folder and expects admins
+# to build assets, but for our one-shot installer UX we ship them.
+!assets/
+!assets/*
+!assets/**/*
