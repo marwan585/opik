@@ -3,6 +3,12 @@
     <head>
         <title>{{ config('app.name', 'Cloud Server') }}</title>
 
+        {{-- Cloud Server: aggressively prevent browser caching of HTML pages
+            so users always get the latest bundle reference after updates. --}}
+        <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate, max-age=0">
+        <meta http-equiv="Pragma" content="no-cache">
+        <meta http-equiv="Expires" content="0">
+
         @section('meta')
             <meta charset="utf-8">
             <meta http-equiv="X-UA-Compatible" content="IE=edge">
@@ -48,7 +54,16 @@
             @yield('below-container')
         @show
         @section('scripts')
-            {!! $asset->js('main.js') !!}
+            {{-- Cloud Server: append cache-buster query string to bundle URL
+                so mobile browsers (Chrome Android, Safari iOS) always fetch
+                fresh asset instead of using stale cached version. The hash
+                is read from manifest.json so it changes whenever a new
+                bundle is built. --}}
+            @php
+                $bundleSrc = $asset->url('main.js');
+                $cacheBust = '?v=' . substr(md5_file(public_path('assets/manifest.json')), 0, 8);
+            @endphp
+            <script src="{{ $bundleSrc . $cacheBust }}" crossorigin="anonymous"></script>
         @show
     </body>
 </html>

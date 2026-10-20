@@ -26,6 +26,12 @@ class SetSecurityHeaders
      * If a header has already been set in another location within the code it will be
      * skipped over here.
      *
+     * Cloud Server addition: also set aggressive no-cache headers on HTML responses
+     * (text/html) so that mobile browsers (Chrome Android, Safari iOS) never serve
+     * a stale HTML shell that references an old JS bundle URL. Static assets
+     * (JS/CSS/images) are still cacheable by the browser because they are
+     * content-hashed (e.g. bundle.ca459b3d.js).
+     *
      * @param (\Closure(mixed): \Illuminate\Http\Response) $next
      */
     public function handle(Request $request, \Closure $next): mixed
@@ -36,6 +42,15 @@ class SetSecurityHeaders
             if (! $response->headers->has($key)) {
                 $response->headers->set($key, $value);
             }
+        }
+
+        // Cloud Server: prevent mobile browsers from caching HTML pages.
+        // JS/CSS assets remain cached (they have content hashes in their URLs).
+        $contentType = $response->headers->get('Content-Type', '');
+        if (str_starts_with($contentType, 'text/html')) {
+            $response->headers->set('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0');
+            $response->headers->set('Pragma', 'no-cache');
+            $response->headers->set('Expires', '0');
         }
 
         return $response;
