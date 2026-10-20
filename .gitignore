@@ -1,0 +1,8 @@
+# Cloud Server — exclude runtime artifacts only
+/.env
+/node_modules
+/storage/logs/*.log
+/storage/clockwork/*
+/storage/framework/cache/data/*
+/storage/framework/sessions/*
+/storage/framework/views/*
