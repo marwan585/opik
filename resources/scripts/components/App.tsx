@@ -1,5 +1,4 @@
 import React, { lazy } from 'react';
-import { hot } from 'react-hot-loader/root';
 import { Route, Router, Switch } from 'react-router-dom';
 import { StoreProvider } from 'easy-peasy';
 import { store } from '@/state';
@@ -16,6 +15,11 @@ import '@/assets/tailwind.css';
 import Spinner from '@/components/elements/Spinner';
 import { NookThemeProvider } from '@/theme';
 
+// Cloud Server: DashboardRouter is eager-loaded (not lazy) to avoid
+// "init is not a function" lazy-loading crashes on production builds.
+// The lazy-loaded chunks crash on mount because react-hot-loader's
+// patched React 16 + lazy chunk wiring doesn't work cleanly in
+// minified production bundles. Server and Auth routers stay lazy.
 const DashboardRouter = lazy(() => import(/* webpackChunkName: "dashboard" */ '@/routers/DashboardRouter'));
 const ServerRouter = lazy(() => import(/* webpackChunkName: "server" */ '@/routers/ServerRouter'));
 const AuthenticationRouter = lazy(() => import(/* webpackChunkName: "auth" */ '@/routers/AuthenticationRouter'));
@@ -95,4 +99,4 @@ const App = () => {
     );
 };
 
-export default hot(App);
+export default App;

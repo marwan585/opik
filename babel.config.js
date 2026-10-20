@@ -1,9 +1,14 @@
 module.exports = function (api) {
     let targets = {};
+    const isProd = api.env('production');
     const plugins = [
         'babel-plugin-macros',
         'styled-components',
-        'react-hot-loader/babel',
+    ];
+    if (!isProd) {
+        plugins.push('react-hot-loader/babel');
+    }
+    plugins.push(
         '@babel/transform-runtime',
         '@babel/transform-react-jsx',
         '@babel/proposal-class-properties',
@@ -11,7 +16,7 @@ module.exports = function (api) {
         '@babel/proposal-optional-chaining',
         '@babel/proposal-nullish-coalescing-operator',
         '@babel/syntax-dynamic-import',
-    ];
+    );
 
     if (api.env('test')) {
         targets = { node: 'current' };
