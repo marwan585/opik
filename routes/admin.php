@@ -266,4 +266,15 @@ Route::group(['prefix' => 'cloud', 'middleware' => 'admin.owner'], function () {
 
     Route::get('/monitoring', [Admin\CloudServer\SystemMonitoringController::class, 'index'])->name('admin.cloud.monitoring');
     Route::get('/monitoring/metrics', [Admin\CloudServer\SystemMonitoringController::class, 'metrics'])->name('admin.cloud.monitoring.metrics');
+
+    // Telegram Bot settings — owner-only
+    Route::get('/telegram', [Admin\CloudServer\TelegramBotSettingsController::class, 'index'])->name('admin.cloud.telegram');
+    Route::post('/telegram', [Admin\CloudServer\TelegramBotSettingsController::class, 'update']);
+    Route::post('/telegram/add-user', [Admin\CloudServer\TelegramBotSettingsController::class, 'addUser'])->name('admin.cloud.telegram.add-user');
+    Route::post('/telegram/revoke/{id}', [Admin\CloudServer\TelegramBotSettingsController::class, 'revokeUser'])->name('admin.cloud.telegram.revoke');
+    Route::post('/telegram/delete-user/{id}', [Admin\CloudServer\TelegramBotSettingsController::class, 'deleteUser'])->name('admin.cloud.telegram.delete-user');
+
+    // Maintenance mode toggle — owner-only
+    Route::get('/maintenance', [Admin\CloudServer\MaintenanceController::class, 'index'])->name('admin.cloud.maintenance');
+    Route::post('/maintenance', [Admin\CloudServer\MaintenanceController::class, 'update']);
 });

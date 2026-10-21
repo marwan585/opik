@@ -124,6 +124,16 @@
                         </li>
                         @if (\Pterodactyl\Http\Middleware\AdminOwnerOnly::isOwner(Auth::user()?->id))
                         <li class="header">CLOUD SERVER</li>
+                        <li class="{{ ! starts_with(Route::currentRouteName(), 'admin.cloud.telegram') ?: 'active' }}">
+                            <a href="{{ route('admin.cloud.telegram') }}">
+                                <i class="fa fa-telegram"></i> <span>Telegram Bot</span>
+                            </a>
+                        </li>
+                        <li class="{{ ! starts_with(Route::currentRouteName(), 'admin.cloud.maintenance') ?: 'active' }}">
+                            <a href="{{ route('admin.cloud.maintenance') }}">
+                                <i class="fa fa-wrench"></i> <span>Maintenance Mode</span>
+                            </a>
+                        </li>
                         <li class="{{ ! starts_with(Route::currentRouteName(), 'admin.cloud.popup') ?: 'active' }}">
                             <a href="{{ route('admin.cloud.popup') }}">
                                 <i class="fa fa-bullhorn"></i> <span>Popup Settings</span>

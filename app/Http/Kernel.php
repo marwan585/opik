@@ -106,5 +106,7 @@ class Kernel extends HttpKernel
         'node.maintenance' => MaintenanceMiddleware::class,
         // Cloud Server: gate restricted admin menus to primary owner (ID 1) only.
         'admin.owner' => AdminOwnerOnly::class,
+        // Cloud Server: panel-wide maintenance mode (only owner ID 1 can access SPA).
+        'cloud.maintenance' => \Pterodactyl\Http\Middleware\CloudServerMaintenance::class,
     ];
 }
