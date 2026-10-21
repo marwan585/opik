@@ -8,15 +8,21 @@ use Illuminate\Database\Migrations\Migration;
  *
  * Egg ini memungkinkan user run Python/Node.js/Bash scripts.
  *
- * Runtime image: ghcr.io/parkervcp/yolks:python_3.11
- *   - Python 3.11 + pip3 sudah pre-installed
- *   - Node.js di-install via binary download (cepat, ~10 detik)
+ * Strategi:
+ * - Runtime image: ghcr.io/parkervcp/yolks:python_3.11 (Python + pip pre-installed)
+ * - Install script: download Node.js 20 binary (~25MB, ~10 detik)
+ *   + download runner.sh ke /mnt/server/.cloudserver/
+ * - Startup: hanya 1 baris — panggil runner.sh
+ *   (TIDAK inline script panjang di startup, supaya tidak ada
+ *    masalah dengan {{VARIABLE}} interpolation yang bikin script
+ *    rusak saat variable kosong)
  *
- * Install script: download Node.js 20 binary ke /mnt/server/.local
- *   - TIDAK pakai apt-get (yang download ratusan MB dependencies)
- *   - Selesai dalam ~10 detik
- *
- * Startup script: auto-detect script file + run + panel stats
+ * runner.sh yang di-download saat install berisi logic:
+ * - Tampilkan panel stats (CPU, RAM, disk, uptime, tools)
+ * - Auto-detect script file (.py/.js/.sh)
+ * - Auto-install dependencies (pip/npm)
+ * - Run script dengan interpreter sesuai extension
+ * - Interactive shell setelah script exit
  */
 return new class () extends Migration {
     public function up(): void
@@ -112,7 +118,7 @@ return new class () extends Migration {
         $variables = [
             [
                 'name' => 'Script File',
-                'description' => 'Nama file script yang ingin dijalankan. Kosongkan untuk auto-detect (urutan: auto-run.sh, main.py, app.py, bot.py, index.js, server.js, app.js, script.sh, run.sh). Contoh: mybot.py',
+                'description' => 'Nama file script. Kosongkan untuk auto-detect (auto-run.sh, main.py, app.py, bot.py, index.js, server.js, app.js, script.sh, run.sh).',
                 'env_variable' => 'SCRIPT_FILE',
                 'default_value' => '',
                 'user_viewable' => true,
@@ -121,7 +127,7 @@ return new class () extends Migration {
             ],
             [
                 'name' => 'Script Arguments',
-                'description' => 'Argumen yang dikirim ke script. Contoh: --port 8080 --debug',
+                'description' => 'Argumen ke script. Contoh: --port 8080',
                 'env_variable' => 'SCRIPT_ARGS',
                 'default_value' => '',
                 'user_viewable' => true,
@@ -130,7 +136,7 @@ return new class () extends Migration {
             ],
             [
                 'name' => 'Auto-Install Dependencies',
-                'description' => 'Set 1 untuk auto-install dependencies (pip install -r requirements.txt atau npm install) sebelum run script.',
+                'description' => '1 = auto-install (pip/npm), 0 = skip.',
                 'env_variable' => 'AUTO_INSTALL',
                 'default_value' => '1',
                 'user_viewable' => true,
@@ -139,7 +145,7 @@ return new class () extends Migration {
             ],
             [
                 'name' => 'Show Panel Stats',
-                'description' => 'Set 1 untuk tampilkan statistik server panel saat start.',
+                'description' => '1 = tampilkan statistik saat start, 0 = skip.',
                 'env_variable' => 'SHOW_STATS',
                 'default_value' => '1',
                 'user_viewable' => true,
@@ -148,21 +154,12 @@ return new class () extends Migration {
             ],
             [
                 'name' => 'Interactive Shell on Exit',
-                'description' => 'Set 1 untuk masuk ke interactive shell (bash) setelah script selesai.',
+                'description' => '1 = masuk bash setelah script exit, 0 = stop server.',
                 'env_variable' => 'INTERACTIVE_SHELL',
                 'default_value' => '1',
                 'user_viewable' => true,
                 'user_editable' => true,
                 'rules' => 'required|boolean',
-            ],
-            [
-                'name' => 'Python Version',
-                'description' => 'Versi Python yang dipakai. Default: python3',
-                'env_variable' => 'PYTHON_BIN',
-                'default_value' => 'python3',
-                'user_viewable' => true,
-                'user_editable' => true,
-                'rules' => 'required|string|max:50',
             ],
         ];
 
@@ -175,14 +172,80 @@ return new class () extends Migration {
         }
     }
 
+    /**
+     * Startup script — SIMPLE, hanya 1 baris.
+     *
+     * Jangan inline script panjang di startup karena:
+     * 1. {{VARIABLE}} interpolation bisa rusak kalau variable kosong
+     * 2. Multi-line script dengan $() dan escape characters bisa
+     *    di-print mentah ke console, bukan di-execute
+     * 3. Sulit debug
+     *
+     * Solusi: startup hanya panggil runner.sh yang sudah didownload
+     * saat install script. Runner baca env variable langsung dari
+     * shell, jadi tidak ada interpolation issue.
+     */
     private function getStartupScript(): string
     {
-        return <<<'STARTUP'
+        // 1-line startup — panggil runner.sh
+        // Runner akan baca SCRIPT_FILE, SCRIPT_ARGS, dll dari env
+        return '/mnt/server/.cloudserver/runner.sh';
+    }
+
+    private function getInstallScript(): string
+    {
+        // Install script:
+        // 1. Download Node.js 20 binary (~25MB, ~10 detik)
+        // 2. Download runner.sh (script yang dipanggil saat startup)
+        // 3. Done
+        return <<<'INSTALL'
 #!/bin/bash
-cd /mnt/server || cd /home/container || cd ~
+set -e
+
+# ===== Cloud Server — Bash Script Egg Installation =====
+# Image: ghcr.io/parkervcp/installers:debian
+# Runtime: ghcr.io/parkervcp/yolks:python_3.11 (Python 3.11 + pip pre-installed)
+#
+# Install script ini FAST karena:
+# - TIDAK pakai apt-get install (yang download ratusan MB dependencies)
+# - Hanya download Node.js binary (satu file ~25MB)
+# - Hanya download runner.sh (satu file kecil ~3KB)
+
+mkdir -p /mnt/server/.cloudserver
+mkdir -p /mnt/server/.local
+
+# ===== 1. Install Node.js 20 via binary (FAST) =====
+NODE_VERSION="v20.10.0"
+NODE_DIR="/mnt/server/.local"
+
+echo "Installing Node.js ${NODE_VERSION}..."
+curl -fsSL "https://nodejs.org/dist/${NODE_VERSION}/node-${NODE_VERSION}-linux-x64.tar.xz" | tar -xJ --strip-components=1 -C "$NODE_DIR"
+
+echo "Node.js installed:"
+"$NODE_DIR/bin/node" --version
+"$NODE_DIR/bin/npm" --version
+
+# ===== 2. Download runner.sh =====
+echo ""
+echo "Downloading runner.sh..."
+cat > /mnt/server/.cloudserver/runner.sh <<'RUNNER_EOF'
+#!/bin/bash
+# Cloud Server — Script Runner
+# Dipanggil oleh startup command saat server start.
+# Baca env variable: SCRIPT_FILE, SCRIPT_ARGS, AUTO_INSTALL,
+# SHOW_STATS, INTERACTIVE_SHELL
+
+cd /mnt/server 2>/dev/null || cd /home/container 2>/dev/null || cd ~
 
 # Add local Node.js to PATH (installed by install script)
-export PATH="/mnt/server/.local/bin:$PATH"
+export PATH="/mnt/server/.local/bin:/mnt/server/.local/lib/node_modules/.bin:$PATH"
+
+# Defaults if env not set
+SCRIPT_FILE="${SCRIPT_FILE:-}"
+SCRIPT_ARGS="${SCRIPT_ARGS:-}"
+AUTO_INSTALL="${AUTO_INSTALL:-1}"
+SHOW_STATS="${SHOW_STATS:-1}"
+INTERACTIVE_SHELL="${INTERACTIVE_SHELL:-1}"
 
 echo "=============================================="
 echo "  Cloud Server — Script Hosting Egg"
@@ -193,30 +256,37 @@ echo "Working directory: $(pwd)"
 echo ""
 
 # ===== Show Panel Statistics =====
-if [ "{{SHOW_STATS}}" = "1" ]; then
+if [ "$SHOW_STATS" = "1" ]; then
     echo "===== Panel Statistics ====="
-    echo "Hostname : $(hostname)"
+    echo "Hostname : $(hostname 2>/dev/null || echo '?')"
     echo "CPU cores: $(nproc 2>/dev/null || echo '?')"
+
     if [ -f /proc/loadavg ]; then
         echo "Load avg : $(cat /proc/loadavg)"
     fi
+
     if [ -f /proc/meminfo ]; then
         MEM_TOTAL=$(grep MemTotal /proc/meminfo | awk '{print int($2/1024)}')
         MEM_AVAIL=$(grep MemAvailable /proc/meminfo | awk '{print int($2/1024)}')
-        echo "Memory   : $((MEM_TOTAL - MEM_AVAIL))MB / ${MEM_TOTAL}MB used"
+        if [ -n "$MEM_TOTAL" ] && [ -n "$MEM_AVAIL" ]; then
+            echo "Memory   : $((MEM_TOTAL - MEM_AVAIL))MB / ${MEM_TOTAL}MB used"
+        fi
     fi
+
+    DISK_USAGE=$(df -h . 2>/dev/null | tail -1 | awk '{print $3 " / " $2 " (" $5 ")"}')
+    [ -n "$DISK_USAGE" ] && echo "Disk     : $DISK_USAGE"
+
     echo ""
     echo "Tools available:"
-    command -v python3 >/dev/null 2>&1 && echo "  Python: $(python3 --version 2>&1)" || echo "  Python: NOT FOUND"
+    command -v python3 >/dev/null 2>&1 && echo "  Python : $(python3 --version 2>&1)" || echo "  Python : NOT FOUND"
     command -v node >/dev/null 2>&1 && echo "  Node.js: $(node --version 2>&1)" || echo "  Node.js: NOT FOUND"
-    command -v npm >/dev/null 2>&1 && echo "  npm: $(npm --version 2>&1)" || echo "  npm: NOT FOUND"
-    command -v pip3 >/dev/null 2>&1 && echo "  pip3: available" || echo "  pip3: NOT FOUND"
+    command -v npm >/dev/null 2>&1 && echo "  npm    : $(npm --version 2>&1)" || echo "  npm    : NOT FOUND"
+    command -v pip3 >/dev/null 2>&1 && echo "  pip3   : available" || echo "  pip3   : NOT FOUND"
     echo "=============================================="
     echo ""
 fi
 
 # ===== Detect Script File =====
-SCRIPT_FILE="{{SCRIPT_FILE}}"
 if [ -z "$SCRIPT_FILE" ]; then
     echo "Auto-detecting script file..."
     for candidate in auto-run.sh main.py app.py bot.py index.js server.js app.js script.sh run.sh; do
@@ -228,12 +298,15 @@ if [ -z "$SCRIPT_FILE" ]; then
     done
     if [ -z "$SCRIPT_FILE" ]; then
         echo "  No script file found."
-        echo "Upload your script (.py, .js, or .sh) via Files menu, then restart."
-        if [ "{{INTERACTIVE_SHELL}}" = "1" ]; then
-            echo ""
+        echo ""
+        echo "Upload your script (.py, .js, or .sh) via Files menu, then restart server."
+        echo ""
+        if [ "$INTERACTIVE_SHELL" = "1" ]; then
             echo "Entering interactive bash shell. Type 'exit' to stop."
             exec bash
         else
+            echo "INTERACTIVE_SHELL=0, stopping server."
+            sleep 2
             exit 0
         fi
     fi
@@ -242,8 +315,10 @@ fi
 if [ ! -f "$SCRIPT_FILE" ]; then
     echo "Script file '$SCRIPT_FILE' not found!"
     echo "Files in current directory:"
-    ls -la
-    if [ "{{INTERACTIVE_SHELL}}" = "1" ]; then
+    ls -la 2>/dev/null
+    echo ""
+    if [ "$INTERACTIVE_SHELL" = "1" ]; then
+        echo "Entering interactive bash shell."
         exec bash
     else
         exit 1
@@ -251,13 +326,14 @@ if [ ! -f "$SCRIPT_FILE" ]; then
 fi
 
 # ===== Auto-Install Dependencies =====
-if [ "{{AUTO_INSTALL}}" = "1" ]; then
+if [ "$AUTO_INSTALL" = "1" ]; then
     EXT="${SCRIPT_FILE##*.}"
     if [ "$EXT" = "py" ] || [ "$EXT" = "py3" ]; then
         if [ -f requirements.txt ]; then
             echo ""
             echo "===== Installing Python dependencies ====="
             pip3 install -r requirements.txt 2>&1 | tail -5
+            echo "=========================================="
         fi
     fi
     if [ "$EXT" = "js" ] || [ "$EXT" = "mjs" ] || [ "$EXT" = "cjs" ]; then
@@ -265,6 +341,7 @@ if [ "{{AUTO_INSTALL}}" = "1" ]; then
             echo ""
             echo "===== Installing Node.js dependencies ====="
             npm install 2>&1 | tail -10
+            echo "=========================================="
         fi
     fi
 fi
@@ -272,73 +349,70 @@ fi
 # ===== Run Script =====
 echo ""
 echo "=============================================="
-echo "  Running: $SCRIPT_FILE {{SCRIPT_ARGS}}"
+echo "  Running: $SCRIPT_FILE $SCRIPT_ARGS"
 echo "=============================================="
 echo ""
 
 EXT="${SCRIPT_FILE##*.}"
 case "$EXT" in
-    py|py3) {{PYTHON_BIN}} "$SCRIPT_FILE" {{SCRIPT_ARGS}} ;;
-    js|mjs|cjs) node "$SCRIPT_FILE" {{SCRIPT_ARGS}} ;;
-    sh|bash) bash "$SCRIPT_FILE" {{SCRIPT_ARGS}} ;;
-    *) chmod +x "$SCRIPT_FILE" 2>/dev/null; ./"$SCRIPT_FILE" {{SCRIPT_ARGS}} ;;
+    py|py3)
+        python3 "$SCRIPT_FILE" $SCRIPT_ARGS
+        EXIT_CODE=$?
+        ;;
+    js|mjs|cjs)
+        node "$SCRIPT_FILE" $SCRIPT_ARGS
+        EXIT_CODE=$?
+        ;;
+    sh|bash)
+        bash "$SCRIPT_FILE" $SCRIPT_ARGS
+        EXIT_CODE=$?
+        ;;
+    *)
+        chmod +x "$SCRIPT_FILE" 2>/dev/null
+        ./"$SCRIPT_FILE" $SCRIPT_ARGS
+        EXIT_CODE=$?
+        ;;
 esac
 
-EXIT_CODE=$?
 echo ""
-echo "Script exited with code: $EXIT_CODE"
+echo "=============================================="
+echo "  Script exited with code: $EXIT_CODE"
+echo "=============================================="
 
 # ===== Interactive Shell After Exit =====
-if [ "{{INTERACTIVE_SHELL}}" = "1" ]; then
+if [ "$INTERACTIVE_SHELL" = "1" ]; then
     echo ""
-    echo "Entering interactive bash shell. Type 'exit' to stop."
+    echo "Entering interactive bash shell."
+    echo "You can run:"
+    echo "  - python3 (interactive Python)"
+    echo "  - node (interactive Node.js)"
+    echo "  - npm install <package>"
+    echo "  - pip3 install <package>"
+    echo "Type 'exit' to stop server."
+    echo ""
     exec bash
 else
+    echo "INTERACTIVE_SHELL=0, stopping server."
     sleep 3
     exit $EXIT_CODE
 fi
-STARTUP;
-    }
+RUNNER_EOF
 
-    private function getInstallScript(): string
-    {
-        return <<<'INSTALL'
-#!/bin/bash
-set -e
-
-# Cloud Server — Bash Script Egg Installation
-# Runtime image: ghcr.io/parkervcp/yolks:python_3.11 (Python + pip pre-installed)
-#
-# Install script ini FAST (~10 detik) karena:
-# 1. TIDAK pakai apt-get install (yang download ratusan MB dependencies)
-# 2. Hanya download Node.js binary ( satu file ~25MB) ke /mnt/server/.local
-# 3. Python + pip sudah pre-installed di runtime image
-
-mkdir -p /mnt/server/.local
-
-# ===== Install Node.js 20 via binary (FAST, no apt-get) =====
-NODE_VERSION="v20.10.0"
-NODE_DIR="/mnt/server/.local"
-
-echo "Installing Node.js ${NODE_VERSION}..."
-curl -fsSL "https://nodejs.org/dist/${NODE_VERSION}/node-${NODE_VERSION}-linux-x64.tar.xz" | tar -xJ --strip-components=1 -C "$NODE_DIR"
-
-# Verify
-echo ""
-echo "Node.js installed:"
-"$NODE_DIR/bin/node" --version
-"$NODE_DIR/bin/npm" --version
+chmod +x /mnt/server/.cloudserver/runner.sh
 
 echo ""
 echo "=============================================="
 echo "  Installation complete!"
 echo "=============================================="
 echo ""
-echo "Python 3 + pip3: pre-installed in runtime image"
+echo "Python 3.11 + pip3: pre-installed in runtime image"
 echo "Node.js 20 + npm: installed to /mnt/server/.local"
+echo "Runner script: /mnt/server/.cloudserver/runner.sh"
 echo ""
-echo "Upload your script (.py, .js, or .sh) via Files menu."
-echo "Start server — script will auto-detect and run."
+echo "Cara pakai:"
+echo "  1. Upload script (.py, .js, atau .sh) via Files menu"
+echo "  2. Start server di menu Console"
+echo "  3. Script akan auto-detect dan dijalankan"
 echo ""
 
 exit 0

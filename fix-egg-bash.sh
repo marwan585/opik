@@ -145,9 +145,41 @@ if [ -n "$NEW_EGG_ID" ]; then
     else
         ok "✓ Install script tidak ada apt-get (FAST install)"
     fi
+
+    # Verify startup script (harus simple, hanya panggil runner.sh)
+    SU=$(eval "$MYSQL_CMD -N -e \"SELECT startup FROM eggs WHERE id=$NEW_EGG_ID;\"" 2>/dev/null)
+    if echo "$SU" | grep -q "runner.sh"; then
+        ok "✓ Startup script simple (panggil runner.sh)"
+    else
+        warn "⚠ Startup script bukan runner.sh — masih kompleks"
+    fi
 else
     err "Egg tidak dibuat — cek error di atas"
     exit 1
+fi
+
+# ===== Reinstall semua server yang pakai egg Bash Script =====
+# supaya download runner.sh yang baru
+step "6.5/7 — Trigger reinstall server yang pakai egg Bash"
+
+log "Cari server yang pakai egg Bash Script..."
+SERVERS_USING_EGG=$(eval "$MYSQL_CMD -N -e \"SELECT id, name FROM servers WHERE egg_id='$NEW_EGG_ID';\"" 2>/dev/null || echo "")
+
+if [ -n "$SERVERS_USING_EGG" ]; then
+    ok "Server yang pakai egg Bash Script:"
+    echo "$SERVERS_USING_EGG" | while IFS=$'\t' read -r sid sname; do
+        if [ -n "$sid" ]; then
+            echo "  • ID=$sid  name='$sname'"
+
+            # Set status=installing supaya panel re-trigger install
+            # saat user start server
+            eval "$MYSQL_CMD -e \"UPDATE servers SET status='installing' WHERE id=$sid;\"" 2>/dev/null && \
+                echo "    → status set to 'installing' (akan re-install saat start)"
+        fi
+    done
+    ok "✓ Server akan re-install saat user start (download runner.sh baru)"
+else
+    ok "Tidak ada server yang pakai egg Bash Script — skip reinstall"
 fi
 
 # --- Step 7: Clear cache + reload ---
