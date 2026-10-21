@@ -2,32 +2,21 @@
 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Database\Migrations\Migration;
-use Pterodactyl\Models\Nest;
-use Pterodactyl\Models\Egg;
-use Pterodactyl\Models\EggVariable;
-use Pterodactyl\Services\Nests\NestCreationService;
 
 /**
- * Cloud Server — Tambah egg "Bash Script" yang auto-detect Python/Node.js
+ * Cloud Server — Egg "Bash Script (Python/Node.js)"
  *
- * Egg ini memungkinkan user:
- *  1. Upload script project (file .py atau .js) ke menu Files
- *  2. Start server di menu Console
- *  3. Saat start, otomatis:
- *     - Tampilkan statistik server panel (CPU, RAM, uptime)
- *     - Deteksi bahasa script berdasarkan extensi file
- *     - Jika .py → jalankan dengan python3 (auto pip install)
- *     - Jika .js → jalankan dengan node (auto npm install)
- *     - Jika .sh → jalankan dengan bash
- *  4. User bisa ketik command langsung di console terminal
- *     untuk run command nodejs/python interactively
+ * Egg ini memungkinkan user run Python/Node.js/Bash scripts.
  *
- * Cara pakai (admin):
- *  - Setelah migration, nest "Script Hosting" akan muncul di panel admin
- *  - Egg "Bash Script (Python/Node.js)" tersedia di nest tersebut
- *  - Saat create server baru, pilih egg ini
- *  - Upload script ke folder /home/container via Files menu
- *  - Start server → auto-detect + run + tampilkan statistik
+ * Runtime image: ghcr.io/parkervcp/yolks:python_3.11
+ *   - Python 3.11 + pip3 sudah pre-installed
+ *   - Node.js di-install via binary download (cepat, ~10 detik)
+ *
+ * Install script: download Node.js 20 binary ke /mnt/server/.local
+ *   - TIDAK pakai apt-get (yang download ratusan MB dependencies)
+ *   - Selesai dalam ~10 detik
+ *
+ * Startup script: auto-detect script file + run + panel stats
  */
 return new class () extends Migration {
     public function up(): void
@@ -40,7 +29,7 @@ return new class () extends Migration {
                 'uuid' => \Illuminate\Support\Str::uuid()->toString(),
                 'author' => 'cloud@server.local',
                 'name' => 'Script Hosting',
-                'description' => 'Run Python, Node.js, or Bash scripts as a server. Auto-detects script type and runs it. Includes panel statistics display on start.',
+                'description' => 'Run Python, Node.js, or Bash scripts as a server.',
                 'created_at' => $now,
                 'updated_at' => $now,
             ]);
@@ -48,13 +37,11 @@ return new class () extends Migration {
         }
         $nestId = $nest->id;
 
-        // 2. Buat egg "Bash Script (Python/Node.js)" jika belum ada
+        // 2. Buat atau update egg
         $egg = DB::table('eggs')->where('name', 'Bash Script (Python/Node.js)')->first();
         if ($egg) {
-            // Update existing egg
             $this->updateEgg($egg->id, $nestId);
         } else {
-            // Create new egg
             $eggId = $this->createEgg($nestId);
             $this->createEggVariables($eggId);
         }
@@ -63,28 +50,18 @@ return new class () extends Migration {
     private function createEgg(int $nestId): int
     {
         $now = now();
-
-        // Startup script: auto-detect script type, show stats, run script
         $startup = $this->getStartupScript();
         $installScript = $this->getInstallScript();
 
-        // Note: kolom 'tags' dan 'update_url' TIDAK ada di tabel eggs
-        // versi Pterodactyl ini. Jangan masukkan ke insert.
-        // Kolom 'author' juga TIDAK mass-assignable lewat DB::table,
-        // tapi ada di tabel — kita insert manual.
-        //
-        // Format docker_images: { "Label": "image:tag" }
-        // KEY = label (yang tampil di dropdown), VALUE = image URL.
-        // Jangan dibalik!
         $eggId = DB::table('eggs')->insertGetId([
             'nest_id' => $nestId,
             'uuid' => \Illuminate\Support\Str::uuid()->toString(),
             'author' => 'cloud@server.local',
             'name' => 'Bash Script (Python/Node.js)',
-            'description' => 'Run Python, Node.js, or Bash scripts. Auto-detects script type by file extension (.py, .js, .sh). Auto-installs dependencies (pip/npm). Displays panel statistics on start. Drop into interactive shell if no script found.',
+            'description' => 'Run Python, Node.js, or Bash scripts. Auto-detects script type by file extension (.py, .js, .sh). Auto-installs dependencies (pip/npm). Displays panel statistics on start.',
             'features' => json_encode([]),
             'docker_images' => json_encode([
-                'Debian (Python 3 + Node.js 20 + Bash)' => 'ghcr.io/parkervcp/yolks:debian',
+                'Python 3.11 + Node.js 20' => 'ghcr.io/parkervcp/yolks:python_3.11',
             ]),
             'file_denylist' => json_encode([]),
             'config_files' => '{}',
@@ -115,9 +92,9 @@ return new class () extends Migration {
 
         DB::table('eggs')->where('id', $eggId)->update([
             'nest_id' => $nestId,
-            'description' => 'Run Python, Node.js, or Bash scripts. Auto-detects script type by file extension (.py, .js, .sh). Auto-installs dependencies (pip/npm). Displays panel statistics on start. Drop into interactive shell if no script found.',
+            'description' => 'Run Python, Node.js, or Bash scripts. Auto-detects script type by file extension (.py, .js, .sh). Auto-installs dependencies (pip/npm). Displays panel statistics on start.',
             'docker_images' => json_encode([
-                'Debian (Python 3 + Node.js 20 + Bash)' => 'ghcr.io/parkervcp/yolks:debian',
+                'Python 3.11 + Node.js 20' => 'ghcr.io/parkervcp/yolks:python_3.11',
             ]),
             'startup' => $startup,
             'script_install' => $installScript,
@@ -125,7 +102,6 @@ return new class () extends Migration {
             'updated_at' => now(),
         ]);
 
-        // Re-create variables (delete old + insert new)
         DB::table('egg_variables')->where('egg_id', $eggId)->delete();
         $this->createEggVariables($eggId);
     }
@@ -136,7 +112,7 @@ return new class () extends Migration {
         $variables = [
             [
                 'name' => 'Script File',
-                'description' => 'Nama file script yang ingin dijalankan. Kosongkan untuk auto-detect (urutan: auto-run.sh, main.py, app.py, index.js, server.js, script.sh). Contoh: mybot.py',
+                'description' => 'Nama file script yang ingin dijalankan. Kosongkan untuk auto-detect (urutan: auto-run.sh, main.py, app.py, bot.py, index.js, server.js, app.js, script.sh, run.sh). Contoh: mybot.py',
                 'env_variable' => 'SCRIPT_FILE',
                 'default_value' => '',
                 'user_viewable' => true,
@@ -154,7 +130,7 @@ return new class () extends Migration {
             ],
             [
                 'name' => 'Auto-Install Dependencies',
-                'description' => 'Set 1 untuk auto-install dependencies (pip install -r requirements.txt atau npm install) sebelum run script. Set 0 untuk skip.',
+                'description' => 'Set 1 untuk auto-install dependencies (pip install -r requirements.txt atau npm install) sebelum run script.',
                 'env_variable' => 'AUTO_INSTALL',
                 'default_value' => '1',
                 'user_viewable' => true,
@@ -163,7 +139,7 @@ return new class () extends Migration {
             ],
             [
                 'name' => 'Show Panel Stats',
-                'description' => 'Set 1 untuk tampilkan statistik server panel (CPU, RAM, uptime, disk) saat start. Set 0 untuk skip.',
+                'description' => 'Set 1 untuk tampilkan statistik server panel saat start.',
                 'env_variable' => 'SHOW_STATS',
                 'default_value' => '1',
                 'user_viewable' => true,
@@ -172,7 +148,7 @@ return new class () extends Migration {
             ],
             [
                 'name' => 'Interactive Shell on Exit',
-                'description' => 'Set 1 untuk masuk ke interactive shell (bash) setelah script selesai atau gagal. Set 0 untuk stop server setelah script exit.',
+                'description' => 'Set 1 untuk masuk ke interactive shell (bash) setelah script selesai.',
                 'env_variable' => 'INTERACTIVE_SHELL',
                 'default_value' => '1',
                 'user_viewable' => true,
@@ -181,30 +157,12 @@ return new class () extends Migration {
             ],
             [
                 'name' => 'Python Version',
-                'description' => 'Versi Python yang dipakai (python3 default). Contoh: python3, python3.11, python3.10',
+                'description' => 'Versi Python yang dipakai. Default: python3',
                 'env_variable' => 'PYTHON_BIN',
                 'default_value' => 'python3',
                 'user_viewable' => true,
                 'user_editable' => true,
                 'rules' => 'required|string|max:50',
-            ],
-            [
-                'name' => 'Node.js Version',
-                'description' => 'Versi Node.js yang dipakai (node default). Contoh: node, node20, node18',
-                'env_variable' => 'NODE_BIN',
-                'default_value' => 'node',
-                'user_viewable' => true,
-                'user_editable' => true,
-                'rules' => 'required|string|max:50',
-            ],
-            [
-                'name' => 'Stats Refresh Interval',
-                'description' => 'Interval refresh statistik (detik). Default 5. Set 0 untuk tampilkan sekali saja.',
-                'env_variable' => 'STATS_INTERVAL',
-                'default_value' => '5',
-                'user_viewable' => true,
-                'user_editable' => true,
-                'rules' => 'required|numeric|min:0|max:3600',
             ],
         ];
 
@@ -219,13 +177,13 @@ return new class () extends Migration {
 
     private function getStartupScript(): string
     {
-        // Multi-line bash startup script
-        // Using {{SCRIPT_FILE}}, {{SCRIPT_ARGS}}, {{AUTO_INSTALL}}, etc — Pterodactyl env variable interpolation
         return <<<'STARTUP'
 #!/bin/bash
 cd /mnt/server || cd /home/container || cd ~
 
-# ===== Cloud Server — Bash Script Runner =====
+# Add local Node.js to PATH (installed by install script)
+export PATH="/mnt/server/.local/bin:$PATH"
+
 echo "=============================================="
 echo "  Cloud Server — Script Hosting Egg"
 echo "=============================================="
@@ -239,43 +197,20 @@ if [ "{{SHOW_STATS}}" = "1" ]; then
     echo "===== Panel Statistics ====="
     echo "Hostname : $(hostname)"
     echo "CPU cores: $(nproc 2>/dev/null || echo '?')"
-    
-    # Load average
     if [ -f /proc/loadavg ]; then
-        LOAD=$(cat /proc/loadavg)
-        echo "Load avg : $LOAD"
+        echo "Load avg : $(cat /proc/loadavg)"
     fi
-    
-    # Memory
     if [ -f /proc/meminfo ]; then
         MEM_TOTAL=$(grep MemTotal /proc/meminfo | awk '{print int($2/1024)}')
         MEM_AVAIL=$(grep MemAvailable /proc/meminfo | awk '{print int($2/1024)}')
-        MEM_USED=$((MEM_TOTAL - MEM_AVAIL))
-        echo "Memory   : ${MEM_USED}MB / ${MEM_TOTAL}MB used"
+        echo "Memory   : $((MEM_TOTAL - MEM_AVAIL))MB / ${MEM_TOTAL}MB used"
     fi
-    
-    # Disk
-    DISK_USAGE=$(df -h . 2>/dev/null | tail -1 | awk '{print $3 " / " $2 " (" $5 ")"}')
-    echo "Disk     : $DISK_USAGE"
-    
-    # Uptime
-    if [ -f /proc/uptime ]; then
-        UP_SEC=$(awk '{print int($1)}' /proc/uptime)
-        UP_H=$((UP_SEC / 3600))
-        UP_M=$(((UP_SEC % 3600) / 60))
-        UP_S=$((UP_SEC % 60))
-        echo "Uptime   : ${UP_H}h ${UP_M}m ${UP_S}s"
-    fi
-    
-    # Tools available
     echo ""
     echo "Tools available:"
-    command -v python3 >/dev/null 2>&1 && echo "  ✓ Python: $(python3 --version 2>&1)"
-    command -v node >/dev/null 2>&1 && echo "  ✓ Node.js: $(node --version 2>&1)"
-    command -v npm >/dev/null 2>&1 && echo "  ✓ npm: $(npm --version 2>&1)"
-    command -v pip3 >/dev/null 2>&1 && echo "  ✓ pip3: $(pip3 --version 2>&1 | head -1)"
-    command -v git >/dev/null 2>&1 && echo "  ✓ git: $(git --version 2>&1)"
-    command -v curl >/dev/null 2>&1 && echo "  ✓ curl: $(curl --version 2>&1 | head -1)"
+    command -v python3 >/dev/null 2>&1 && echo "  Python: $(python3 --version 2>&1)" || echo "  Python: NOT FOUND"
+    command -v node >/dev/null 2>&1 && echo "  Node.js: $(node --version 2>&1)" || echo "  Node.js: NOT FOUND"
+    command -v npm >/dev/null 2>&1 && echo "  npm: $(npm --version 2>&1)" || echo "  npm: NOT FOUND"
+    command -v pip3 >/dev/null 2>&1 && echo "  pip3: available" || echo "  pip3: NOT FOUND"
     echo "=============================================="
     echo ""
 fi
@@ -283,39 +218,32 @@ fi
 # ===== Detect Script File =====
 SCRIPT_FILE="{{SCRIPT_FILE}}"
 if [ -z "$SCRIPT_FILE" ]; then
-    # Auto-detect script file
     echo "Auto-detecting script file..."
     for candidate in auto-run.sh main.py app.py bot.py index.js server.js app.js script.sh run.sh; do
         if [ -f "$candidate" ]; then
             SCRIPT_FILE="$candidate"
-            echo "  ✓ Found: $SCRIPT_FILE"
+            echo "  Found: $SCRIPT_FILE"
             break
         fi
     done
     if [ -z "$SCRIPT_FILE" ]; then
-        echo "  ✗ No script file found (looked for: auto-run.sh, main.py, app.py, bot.py, index.js, server.js, app.js, script.sh, run.sh)"
-        echo ""
-        echo "Upload your script to /home/container via Files menu, then restart server."
-        echo ""
+        echo "  No script file found."
+        echo "Upload your script (.py, .js, or .sh) via Files menu, then restart."
         if [ "{{INTERACTIVE_SHELL}}" = "1" ]; then
-            echo "Entering interactive bash shell. Type 'exit' to stop server."
-            echo "You can run python3, node, npm, pip3 commands directly."
             echo ""
+            echo "Entering interactive bash shell. Type 'exit' to stop."
             exec bash
         else
-            echo "INTERACTIVE_SHELL=0, stopping server."
             exit 0
         fi
     fi
 fi
 
 if [ ! -f "$SCRIPT_FILE" ]; then
-    echo "✗ Script file '$SCRIPT_FILE' not found!"
-    echo "Available files in current directory:"
+    echo "Script file '$SCRIPT_FILE' not found!"
+    echo "Files in current directory:"
     ls -la
     if [ "{{INTERACTIVE_SHELL}}" = "1" ]; then
-        echo ""
-        echo "Entering interactive bash shell."
         exec bash
     else
         exit 1
@@ -325,28 +253,18 @@ fi
 # ===== Auto-Install Dependencies =====
 if [ "{{AUTO_INSTALL}}" = "1" ]; then
     EXT="${SCRIPT_FILE##*.}"
-    
     if [ "$EXT" = "py" ] || [ "$EXT" = "py3" ]; then
         if [ -f requirements.txt ]; then
             echo ""
             echo "===== Installing Python dependencies ====="
             pip3 install -r requirements.txt 2>&1 | tail -5
-            echo "=========================================="
-        fi
-        if [ -f Pipfile ]; then
-            echo ""
-            echo "===== Installing Pipenv dependencies ====="
-            command -v pipenv >/dev/null 2>&1 && pipenv install || pip3 install pipenv && pipenv install
-            echo "=========================================="
         fi
     fi
-    
     if [ "$EXT" = "js" ] || [ "$EXT" = "mjs" ] || [ "$EXT" = "cjs" ]; then
         if [ -f package.json ]; then
             echo ""
             echo "===== Installing Node.js dependencies ====="
             npm install 2>&1 | tail -10
-            echo "=========================================="
         fi
     fi
 fi
@@ -359,49 +277,23 @@ echo "=============================================="
 echo ""
 
 EXT="${SCRIPT_FILE##*.}"
-
 case "$EXT" in
-    py|py3)
-        {{PYTHON_BIN}} "$SCRIPT_FILE" {{SCRIPT_ARGS}}
-        EXIT_CODE=$?
-        ;;
-    js|mjs|cjs)
-        {{NODE_BIN}} "$SCRIPT_FILE" {{SCRIPT_ARGS}}
-        EXIT_CODE=$?
-        ;;
-    sh|bash)
-        bash "$SCRIPT_FILE" {{SCRIPT_ARGS}}
-        EXIT_CODE=$?
-        ;;
-    *)
-        echo "Unknown script extension: $EXT"
-        echo "Trying to execute directly..."
-        chmod +x "$SCRIPT_FILE" 2>/dev/null
-        ./"$SCRIPT_FILE" {{SCRIPT_ARGS}}
-        EXIT_CODE=$?
-        ;;
+    py|py3) {{PYTHON_BIN}} "$SCRIPT_FILE" {{SCRIPT_ARGS}} ;;
+    js|mjs|cjs) node "$SCRIPT_FILE" {{SCRIPT_ARGS}} ;;
+    sh|bash) bash "$SCRIPT_FILE" {{SCRIPT_ARGS}} ;;
+    *) chmod +x "$SCRIPT_FILE" 2>/dev/null; ./"$SCRIPT_FILE" {{SCRIPT_ARGS}} ;;
 esac
 
+EXIT_CODE=$?
 echo ""
-echo "=============================================="
-echo "  Script exited with code: $EXIT_CODE"
-echo "=============================================="
+echo "Script exited with code: $EXIT_CODE"
 
 # ===== Interactive Shell After Exit =====
 if [ "{{INTERACTIVE_SHELL}}" = "1" ]; then
     echo ""
-    echo "Entering interactive bash shell."
-    echo "You can run:"
-    echo "  - python3 (interactive Python)"
-    echo "  - node (interactive Node.js)"
-    echo "  - npm install <package>"
-    echo "  - pip3 install <package>"
-    echo "  - ls, cd, cat, etc (bash commands)"
-    echo "Type 'exit' to stop server."
-    echo ""
+    echo "Entering interactive bash shell. Type 'exit' to stop."
     exec bash
 else
-    echo "INTERACTIVE_SHELL=0, stopping server."
     sleep 3
     exit $EXIT_CODE
 fi
@@ -412,53 +304,42 @@ STARTUP;
     {
         return <<<'INSTALL'
 #!/bin/bash
-# Cloud Server — Bash Script Egg Installation
-# Image: ghcr.io/parkervcp/installers:debian
-#
-# PENTING: Install script ini TIDAK install package apapun via apt-get.
-# Image runtime (ghcr.io/parkervcp/yolks:debian) SUDAH punya:
-#   - Python 3 + pip3
-#   - Node.js 20 + npm
-#   - git, curl, bash, ca-certificates
-#
-# Jika kita apt-get install nodejs npm di sini, apt akan download
-# ratusan MB dependencies Debian (node-esrecurse, node-*, dll) dan
-# bisa makan 30+ menit. Itu yang bikin install stuck 1 jam.
-#
-# Install script ini cukup:
-# 1. Pastikan folder /mnt/server ada
-# 2. Print info bahwa installation complete
-# 3. Exit (langsung selesai dalam <1 detik)
-
 set -e
 
-# Pastikan folder server ada
-mkdir -p /mnt/server
-cd /mnt/server
+# Cloud Server — Bash Script Egg Installation
+# Runtime image: ghcr.io/parkervcp/yolks:python_3.11 (Python + pip pre-installed)
+#
+# Install script ini FAST (~10 detik) karena:
+# 1. TIDAK pakai apt-get install (yang download ratusan MB dependencies)
+# 2. Hanya download Node.js binary ( satu file ~25MB) ke /mnt/server/.local
+# 3. Python + pip sudah pre-installed di runtime image
 
-# Print info
+mkdir -p /mnt/server/.local
+
+# ===== Install Node.js 20 via binary (FAST, no apt-get) =====
+NODE_VERSION="v20.10.0"
+NODE_DIR="/mnt/server/.local"
+
+echo "Installing Node.js ${NODE_VERSION}..."
+curl -fsSL "https://nodejs.org/dist/${NODE_VERSION}/node-${NODE_VERSION}-linux-x64.tar.xz" | tar -xJ --strip-components=1 -C "$NODE_DIR"
+
+# Verify
+echo ""
+echo "Node.js installed:"
+"$NODE_DIR/bin/node" --version
+"$NODE_DIR/bin/npm" --version
+
 echo ""
 echo "=============================================="
-echo "  Cloud Server — Bash Script Egg"
 echo "  Installation complete!"
 echo "=============================================="
 echo ""
-echo "Runtime image sudah pre-installed dengan:"
-echo "  - Python 3 + pip3"
-echo "  - Node.js 20 + npm"
-echo "  - git, curl, bash"
+echo "Python 3 + pip3: pre-installed in runtime image"
+echo "Node.js 20 + npm: installed to /mnt/server/.local"
 echo ""
-echo "Tidak perlu apt-get install — image runtime sudah lengkap."
+echo "Upload your script (.py, .js, or .sh) via Files menu."
+echo "Start server — script will auto-detect and run."
 echo ""
-echo "Cara pakai:"
-echo "  1. Upload script Anda (.py, .js, atau .sh) ke folder"
-echo "     /home/container via menu Files di panel"
-echo "  2. Start server di menu Console"
-echo "  3. Script akan auto-detect dan dijalankan"
-echo "  4. Dependencies (requirements.txt / package.json) akan"
-echo "     auto-install saat start (jika AUTO_INSTALL=1)"
-echo ""
-echo "=============================================="
 
 exit 0
 INSTALL;
@@ -466,13 +347,11 @@ INSTALL;
 
     public function down(): void
     {
-        // Find egg and delete
         $egg = DB::table('eggs')->where('name', 'Bash Script (Python/Node.js)')->first();
         if ($egg) {
             DB::table('egg_variables')->where('egg_id', $egg->id)->delete();
             DB::table('eggs')->where('id', $egg->id)->delete();
         }
-        // Find nest and delete (only if no eggs remain)
         $nest = DB::table('nests')->where('name', 'Script Hosting')->first();
         if ($nest) {
             $eggCount = DB::table('eggs')->where('nest_id', $nest->id)->count();
