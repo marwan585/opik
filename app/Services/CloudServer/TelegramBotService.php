@@ -392,6 +392,7 @@ class TelegramBotService
         $progressMsg = $this->sendMessage($chatId, "⏳ Membuat panel... (1/3) Membuat user");
         $progressMsgId = $progressMsg['message_id'] ?? 0;
 
+        $createdUser = null;
         try {
             $password = Str::random(16);
             $email = $username . '@cloudserver.local';
@@ -408,6 +409,7 @@ class TelegramBotService
                 'root_admin' => false,
                 'language' => 'en',
             ]);
+            $createdUser = $user;
 
             $this->editMessage($chatId, $progressMsgId, "⏳ Membuat panel... (2/3) User dibuat ✓. Membuat server...");
 
@@ -521,7 +523,35 @@ class TelegramBotService
                 'error_message' => $e->getMessage(),
             ]);
 
-            $this->editMessage($chatId, $progressMsgId, "❌ <b>Gagal membuat panel</b>\n\nError: <code>" . e($e->getMessage()) . "</code>\n\nSilakan coba lagi atau hubungi admin.");
+            // Build detailed error message — extract validation errors if it's a ValidationException
+            $errorDetail = $e->getMessage();
+            if ($e instanceof \Illuminate\Validation\ValidationException) {
+                $errors = $e->validator->errors()->all();
+                if (!empty($errors)) {
+                    $errorDetail = "Validation failed:\n• " . implode("\n• ", $errors);
+                }
+            }
+            // Also check for previous exceptions (DataValidationException wraps ValidationException)
+            $previous = $e->getPrevious();
+            if ($previous instanceof \Illuminate\Validation\ValidationException) {
+                $errors = $previous->validator->errors()->all();
+                if (!empty($errors)) {
+                    $errorDetail = "Validation failed:\n• " . implode("\n• ", $errors);
+                }
+            }
+
+            $this->editMessage($chatId, $progressMsgId, "❌ <b>Gagal membuat panel</b>\n\nError: <code>" . e($errorDetail) . "</code>\n\nSilakan coba lagi atau hubungi admin.");
+
+            // Cleanup: hapus user yang sudah dibuat jika server creation gagal
+            // supaya username bisa dipakai lagi di percobaan berikutnya
+            if ($createdUser) {
+                try {
+                    $this->userDeletionService->handle($createdUser);
+                    Log::info('TelegramBot: cleaned up user after failed server creation', ['user_id' => $createdUser->id, 'username' => $username]);
+                } catch (\Throwable $cleanupErr) {
+                    Log::warning('TelegramBot: failed to cleanup user after failed server creation', ['user_id' => $createdUser->id, 'error' => $cleanupErr->getMessage()]);
+                }
+            }
         }
     }
 

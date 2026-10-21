@@ -177,6 +177,14 @@ else
     warn "Tidak bisa masuk maintenance mode (mungkin sudah aktif atau ada error). Lanjut..."
 fi
 
+# Stop Telegram bot worker BEFORE updating code (avoid file lock conflicts)
+log "Stopping cloud-tg-bot worker (if running)..."
+if systemctl stop cloud-tg-bot 2>/dev/null; then
+    ok "Bot worker stopped"
+else
+    warn "Bot worker tidak running atau belum di-setup (OK, lanjut)"
+fi
+
 # --- Step 2: Backup critical files ---
 step "2/8 — Backup file penting"
 
@@ -352,6 +360,23 @@ if sudo -u "$WEB_USER" php artisan tinker --execute="echo \DB::schema()->hasTabl
 else
     warn "Tabel telegram_bot_users TIDAK ditemukan — cek migration"
 fi
+
+# Cleanup leftover users from failed Telegram bot panel creations
+# (users with @cloudserver.local email that have 0 servers — created by bot
+# but server creation failed, so they're orphaned)
+log "Cleanup leftover orphaned users dari failed bot attempts..."
+sudo -u "$WEB_USER" php artisan tinker --execute="
+\$orphans = \DB::table('users')->where('email', 'LIKE', '%@cloudserver.local')->get();
+\$deleted = 0;
+foreach (\$orphans as \$u) {
+    \$serverCount = \DB::table('servers')->where('owner_id', \$u->id)->count();
+    if (\$serverCount === 0) {
+        \DB::table('users')->where('id', \$u->id)->delete();
+        \$deleted++;
+    }
+}
+echo \"Deleted {\$deleted} orphaned users\";
+" 2>&1 | tail -1 || true
 
 # --- Step 7: Clear caches + set permissions ---
 step "7/8 — Clear cache + set permission"
