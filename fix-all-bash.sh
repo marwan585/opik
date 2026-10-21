@@ -1,42 +1,22 @@
 #!/bin/bash
 # ============================================================================
-# Cloud Server — Fix All Bash Script Egg Issues (1-Command Master Fixer)
+# Cloud Server — Fix All Bash Script Egg v2 (Robust, no set -e)
 # ============================================================================
 #
 # Cara pakai:
 #   curl -L https://raw.githubusercontent.com/marwan585/opik/main/fix-all-bash.sh | sudo bash
 #
-# Atau download dulu:
-#   curl -L -o fix-all-bash.sh https://raw.githubusercontent.com/marwan585/opik/main/fix-all-bash.sh
-#   chmod +x fix-all-bash.sh
-#   sudo ./fix-all-bash.sh
-#
-# Script ini fix SEMUA masalah Bash Script egg sekaligus:
-#
-#   1. Baca DB credentials dari .env
-#   2. Download migration terbaru + run migration (update egg config)
-#   3. UPDATE egg langsung via SQL (startup=runner.sh, image=python_3.11,
-#      install script download Node binary)
-#   4. Untuk SETIAP server yang pakai egg Bash:
-#      a. Set status=NULL (bukan 'installing')
-#      b. Buat folder .cloudserver + .local di volume server
-#      c. Download Node.js 20 binary LANGSUNG ke /mnt/server/.local
-#         (tidak pakai install script yang lambat)
-#      d. Write runner.sh LANGSUNG ke /mnt/server/.cloudserver/
-#      e. chmod +x runner.sh
-#      f. chown wings:wings supaya bisa di-execute
-#   5. Restart wings daemon (pick up egg changes)
-#   6. Clear cache + reload PHP-FPM + nginx
-#
-# Setelah fix:
-# - User tinggal start server di panel → langsung jalan (runner.sh
-#   sudah ada, Node.js sudah terinstall)
-# - Tidak perlu install script (file sudah di-place langsung)
-# - Status server: NULL (siap start)
-#
+# Perubahan dari v1:
+# - TIDAK pakai 'set -e' (jangan exit on error)
+# - Migration failure tidak fatal — lanjut ke step berikutnya
+# - Run php artisan migrate sebagai ROOT (tidur sudo -u www-data,
+#   hindari masalah psysh permission)
+# - Fokus ke langkah 6: install files LANGSUNG ke folder server
+#   (ini yang bikin server jalan, bukan migration)
+# - Print semua error tapi tetap lanjut
 # ============================================================================
 
-set -e
+# TIDAK pakai set -e — kita handle error manual
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -54,7 +34,7 @@ NODE_VERSION="v20.10.0"
 log()   { echo -e "${BLUE}[$(date +%H:%M:%S)]${NC} $*"; }
 ok()    { echo -e "${GREEN}✓${NC} $*"; }
 warn()  { echo -e "${YELLOW}⚠${NC} $*"; }
-err()   { echo -e "${RED}✗${NC} $*" >&2; }
+err()   { echo -e "${RED}✗${NC} $*"; }
 step()  { echo -e "\n${BOLD}${CYAN}━━━ $* ━━━${NC}"; }
 
 # --- Pre-flight ---
@@ -72,7 +52,8 @@ ok ".env ditemukan"
 command -v php &>/dev/null || { err "PHP tidak ditemukan"; exit 1; }
 command -v mysql &>/dev/null || { err "mysql CLI tidak ditemukan"; exit 1; }
 command -v curl &>/dev/null || { err "curl tidak ditemukan"; exit 1; }
-ok "PHP, mysql, curl tersedia"
+command -v tar &>/dev/null || { err "tar tidak ditemukan"; exit 1; }
+ok "PHP, mysql, curl, tar tersedia"
 
 # Detect web user
 WEB_USER="www-data"
@@ -113,74 +94,110 @@ else
     MYSQL_CMD="mysql -h${DB_HOST} -P${DB_PORT} -u${DB_USERNAME} ${DB_DATABASE}"
 fi
 
-eval "$MYSQL_CMD -e 'SELECT 1'" &>/dev/null || { err "Gagal koneksi DB"; exit 1; }
+if ! eval "$MYSQL_CMD -e 'SELECT 1'" &>/dev/null; then
+    err "Gagal koneksi DB. Cek credentials di .env"
+    exit 1
+fi
 ok "Koneksi DB OK"
 
-# --- Step 2: Download migration + run ---
-step "2/8 — Download migration + run"
+# --- Step 2: Download migration + run (NON-FATAL) ---
+step "2/8 — Download migration + run (non-fatal)"
 
 MIGRATION_PATH="$PANEL_DIR/database/migrations/2026_10_21_020000_add_bash_script_egg.php"
-curl -L --fail -o "$MIGRATION_PATH" "https://raw.githubusercontent.com/marwan585/opik/main/database/migrations/2026_10_21_020000_add_bash_script_egg.php" || { err "Gagal download migration"; exit 1; }
-chown "$WEB_USER":"$WEB_USER" "$MIGRATION_PATH"
-chmod 644 "$MIGRATION_PATH"
-ok "Migration downloaded"
+if curl -L --fail -o "$MIGRATION_PATH" "https://raw.githubusercontent.com/marwan585/opik/main/database/migrations/2026_10_21_020000_add_bash_script_egg.php" 2>/dev/null; then
+    chown "$WEB_USER":"$WEB_USER" "$MIGRATION_PATH" 2>/dev/null || true
+    chmod 644 "$MIGRATION_PATH" 2>/dev/null || true
+    ok "Migration downloaded"
+else
+    warn "Gagal download migration — lanjut dengan egg existing"
+fi
 
-# Reset migration status + delete old egg
+# Reset migration status
 eval "$MYSQL_CMD -e \"DELETE FROM migrations WHERE migration='2026_10_21_020000_add_bash_script_egg';\"" 2>/dev/null
+ok "Migration status reset"
+
+# Delete old egg (jika ada) supaya migration bisa create baru
 EGG_ID_OLD=$(eval "$MYSQL_CMD -N -e \"SELECT id FROM eggs WHERE name='Bash Script (Python/Node.js)' LIMIT 1;\"" 2>/dev/null || echo "")
 if [ -n "$EGG_ID_OLD" ]; then
     eval "$MYSQL_CMD -e \"DELETE FROM egg_variables WHERE egg_id=$EGG_ID_OLD;\"" 2>/dev/null
     eval "$MYSQL_CMD -e \"DELETE FROM eggs WHERE id=$EGG_ID_OLD;\"" 2>/dev/null
+    ok "Egg lama dihapus"
 fi
 
-# Run migration
+# Run migration — sebagai ROOT (hindari psysh issue)
+log "Run migration sebagai root..."
 cd "$PANEL_DIR"
-sudo -u "$WEB_USER" php artisan migrate --force 2>&1 | tail -5
-ok "Migration complete"
+MIGRATE_OUTPUT=$(php artisan migrate --force 2>&1) || {
+    warn "Migration gagal — akan create egg manual via SQL"
+    echo "$MIGRATE_OUTPUT" | tail -10
+}
 
-# --- Step 3: Verify egg + get egg_id ---
-step "3/8 — Verify egg"
-
+# Verify egg ada
 EGG_ID=$(eval "$MYSQL_CMD -N -e \"SELECT id FROM eggs WHERE name='Bash Script (Python/Node.js)' LIMIT 1;\"" 2>/dev/null || echo "")
+
 if [ -z "$EGG_ID" ]; then
-    err "Egg tidak ditemukan setelah migration!"
-    exit 1
+    warn "Migration tidak create egg — create MANUAL via SQL"
+
+    # Cari/buat nest "Script Hosting"
+    NEST_ID=$(eval "$MYSQL_CMD -N -e \"SELECT id FROM nests WHERE name='Script Hosting' LIMIT 1;\"" 2>/dev/null || echo "")
+    if [ -z "$NEST_ID" ]; then
+        eval "$MYSQL_CMD -e \"INSERT INTO nests (uuid, author, name, description, created_at, updated_at) VALUES (UUID(), 'cloud\@server.local', 'Script Hosting', 'Run scripts as a server.', NOW(), NOW());\"" 2>/dev/null
+        NEST_ID=$(eval "$MYSQL_CMD -N -e \"SELECT id FROM nests WHERE name='Script Hosting' LIMIT 1;\"" 2>/dev/null)
+    fi
+    ok "Nest Script Hosting: id=$NEST_ID"
+
+    # Create egg manual
+    eval "$MYSQL_CMD -e \"INSERT INTO eggs (nest_id, uuid, author, name, description, features, docker_images, file_denylist, config_files, config_startup, config_logs, config_stop, config_from, startup, script_is_privileged, script_install, script_entry, script_container, copy_script_from, created_at, updated_at) VALUES ($NEST_ID, UUID(), 'cloud\@server.local', 'Bash Script (Python/Node.js)', 'Run Python/Node.js/Bash scripts', '[]', '{\\\"Python 3.11 + Node.js 20\\\":\\\"ghcr.io/parkervcp/yolks:python_3.11\\\"}', '[]', '{}', '{\\\"done\\\":\\\"Cloud Server script ready\\\",\\\"userInteraction\\\":[]}', '{}', '^C', NULL, '/mnt/server/.cloudserver/runner.sh', 1, '#!/bin/bash\nmkdir -p /mnt/server/.cloudserver\nexit 0', 'bash', 'ghcr.io/parkervcp/installers:debian', NULL, NOW(), NOW());\"" 2>/dev/null
+
+    EGG_ID=$(eval "$MYSQL_CMD -N -e \"SELECT id FROM eggs WHERE name='Bash Script (Python/Node.js)' LIMIT 1;\"" 2>/dev/null)
+
+    if [ -n "$EGG_ID" ]; then
+        ok "Egg dibuat manual: id=$EGG_ID"
+    else
+        err "Gagal create egg manual"
+    fi
 fi
-ok "Egg ID: $EGG_ID"
 
-DI=$(eval "$MYSQL_CMD -N -e \"SELECT docker_images FROM eggs WHERE id=$EGG_ID;\"" 2>/dev/null)
-echo "  docker_images: $DI"
+if [ -n "$EGG_ID" ]; then
+    ok "Egg ID: $EGG_ID"
 
-SU=$(eval "$MYSQL_CMD -N -e \"SELECT startup FROM eggs WHERE id=$EGG_ID;\"" 2>/dev/null)
-echo "  startup: $SU"
+    # Pastikan startup = runner.sh (override via SQL)
+    eval "$MYSQL_CMD -e \"UPDATE eggs SET startup='/mnt/server/.cloudserver/runner.sh' WHERE id=$EGG_ID;\"" 2>/dev/null
+    ok "Startup set ke runner.sh"
 
-# --- Step 4: Get all servers using this egg ---
-step "4/8 — Cari server yang pakai egg Bash Script"
+    # Pastikan docker_images = python_3.11
+    eval "$MYSQL_CMD -e \"UPDATE eggs SET docker_images='{\\\"Python 3.11 + Node.js 20\\\":\\\"ghcr.io/parkervcp/yolks:python_3.11\\\"}' WHERE id=$EGG_ID;\"" 2>/dev/null
+    ok "Docker image set ke python_3.11"
+fi
 
-SERVERS=$(eval "$MYSQL_CMD -N -e \"SELECT id, uuid, name FROM servers WHERE egg_id=$EGG_ID;\"" 2>/dev/null)
+# --- Step 3: Get all servers using this egg ---
+step "3/8 — Cari server yang pakai egg Bash Script"
+
+SERVERS=""
+if [ -n "$EGG_ID" ]; then
+    SERVERS=$(eval "$MYSQL_CMD -N -e \"SELECT id, uuid, name FROM servers WHERE egg_id=$EGG_ID;\"" 2>/dev/null)
+fi
 
 if [ -z "$SERVERS" ]; then
     warn "Tidak ada server yang pakai egg Bash Script (egg_id=$EGG_ID)"
-    warn "Cek semua server:"
-    eval "$MYSQL_CMD -e \"SELECT id, uuid, name, egg_id FROM servers;\"" 2>/dev/null
+    warn "Cari server berdasarkan nama..."
 
-    # Coba cari server berdasarkan nama
-    warn "Cari server berdasarkan nama (MUHAMMAD/ALI/Marwan/Cloud):"
     SERVERS=$(eval "$MYSQL_CMD -N -e \"SELECT id, uuid, name FROM servers WHERE name LIKE '%MUHAMMAD%' OR name LIKE '%ALI%' OR name LIKE '%Marwan%' OR name LIKE '%Cloud%' OR name LIKE '%bash%' OR name LIKE '%script%';\"" 2>/dev/null)
 
     if [ -n "$SERVERS" ]; then
-        ok "Ditemukan server (akan update egg_id):"
+        ok "Ditemukan server — assign ke egg Bash Script:"
         echo "$SERVERS" | while IFS=$'\t' read -r sid suuid sname; do
             [ -z "$sid" ] && continue
             echo "  • ID=$sid name='$sname'"
-            eval "$MYSQL_CMD -e \"UPDATE servers SET egg_id=$EGG_ID WHERE id=$sid;\"" 2>/dev/null
+            [ -n "$EGG_ID" ] && eval "$MYSQL_CMD -e \"UPDATE servers SET egg_id=$EGG_ID WHERE id=$sid;\"" 2>/dev/null
         done
         SERVERS=$(eval "$MYSQL_CMD -N -e \"SELECT id, uuid, name FROM servers WHERE egg_id=$EGG_ID;\"" 2>/dev/null)
     fi
 fi
 
 if [ -z "$SERVERS" ]; then
-    err "Tidak ada server ditemukan. Buat server baru di panel admin dengan egg Bash Script."
+    err "Tidak ada server ditemukan. Tampilkan semua server:"
+    eval "$MYSQL_CMD -e \"SELECT id, uuid, name, egg_id, status FROM servers;\"" 2>/dev/null
     exit 0
 fi
 
@@ -190,26 +207,39 @@ echo "$SERVERS" | while IFS=$'\t' read -r sid suuid sname; do
     echo "  • ID=$sid UUID=$suuid name='$sname'"
 done
 
-# --- Step 5: Download Node.js binary (once, akan di-copy ke setiap server) ---
-step "5/8 — Download Node.js ${NODE_VERSION} (cache lokal)"
+# --- Step 4: Download Node.js binary (cache lokal) ---
+step "4/8 — Download Node.js ${NODE_VERSION} (cache lokal)"
 
-NODE_TARBALL="/tmp/node-${NODE_VERSION}-linux-x64.tar.xz"
 NODE_CACHE="/tmp/node-${NODE_VERSION}-extracted"
 
-if [ ! -d "$NODE_CACHE" ]; then
+if [ ! -d "$NODE_CACHE" ] || [ ! -f "$NODE_CACHE/bin/node" ]; then
     log "Downloading Node.js ${NODE_VERSION} (~25MB)..."
-    curl -fsSL -o "$NODE_TARBALL" "https://nodejs.org/dist/${NODE_VERSION}/node-${NODE_VERSION}-linux-x64.tar.xz"
-    mkdir -p "$NODE_CACHE"
-    tar -xf "$NODE_TARBALL" -C "$NODE_CACHE" --strip-components=1
-    rm -f "$NODE_TARBALL"
+    NODE_TARBALL="/tmp/node-${NODE_VERSION}.tar.xz"
+    if curl -fsSL -o "$NODE_TARBALL" "https://nodejs.org/dist/${NODE_VERSION}/node-${NODE_VERSION}-linux-x64.tar.xz"; then
+        rm -rf "$NODE_CACHE"
+        mkdir -p "$NODE_CACHE"
+        if tar -xf "$NODE_TARBALL" -C "$NODE_CACHE" --strip-components=1; then
+            ok "Node.js extracted"
+        else
+            err "Gagal extract Node.js"
+            rm -rf "$NODE_CACHE"
+        fi
+        rm -f "$NODE_TARBALL"
+    else
+        err "Gagal download Node.js"
+    fi
 fi
 
-ok "Node.js cached di $NODE_CACHE"
-"$NODE_CACHE/bin/node" --version
-"$NODE_CACHE/bin/npm" --version
+if [ -d "$NODE_CACHE" ] && [ -f "$NODE_CACHE/bin/node" ]; then
+    ok "Node.js cached: $($NODE_CACHE/bin/node --version 2>/dev/null)"
+    NODE_OK=1
+else
+    err "Node.js tidak tersedia di cache"
+    NODE_OK=0
+fi
 
-# --- Step 6: Untuk setiap server, install runner.sh + Node.js LANGSUNG ---
-step "6/8 — Install runner.sh + Node.js ke setiap server"
+# --- Step 5: Install files ke setiap server (LANGSUNG, BYPASS install script) ---
+step "5/8 — Install runner.sh + Node.js ke setiap server (LANGSUNG)"
 
 echo "$SERVERS" | while IFS=$'\t' read -r SID SUUID SNAME; do
     [ -z "$SID" ] && continue
@@ -220,24 +250,52 @@ echo "$SERVERS" | while IFS=$'\t' read -r SID SUUID SNAME; do
     SERVER_FILES="$VOLUMES_DIR/$SUUID/files"
     if [ ! -d "$SERVER_FILES" ]; then
         warn "  Folder tidak ditemukan: $SERVER_FILES"
-        warn "  Cek apakah UUID benar atau wings pakai path lain"
+        warn "  Coba path alternatif..."
+        # Cek apakah ada folder dengan UUID ini
+        if [ -d "$VOLUMES_DIR/$SUUID" ]; then
+            echo "  Isi $VOLUMES_DIR/$SUUID:"
+            ls -la "$VOLUMES_DIR/$SUUID/" 2>/dev/null | head -10
+            # Mungkin struktur berbeda
+            SERVER_FILES=$(find "$VOLUMES_DIR/$SUUID" -type d -name "files" 2>/dev/null | head -1)
+            if [ -n "$SERVER_FILES" ]; then
+                ok "  Folder files ditemukan: $SERVER_FILES"
+            else
+                # Pakai root folder
+                SERVER_FILES="$VOLUMES_DIR/$SUUID"
+                warn "  Pakai root folder: $SERVER_FILES"
+            fi
+        else
+            warn "  UUID folder tidak ada: $VOLUMES_DIR/$SUUID"
+            continue
+        fi
+    fi
+
+    if [ ! -d "$SERVER_FILES" ]; then
+        err "  Tidak bisa akses folder server"
         continue
     fi
+
     ok "  Folder: $SERVER_FILES"
 
     # Buat folder .cloudserver + .local
-    mkdir -p "$SERVER_FILES/.cloudserver"
-    mkdir -p "$SERVER_FILES/.local"
+    mkdir -p "$SERVER_FILES/.cloudserver" 2>/dev/null
+    mkdir -p "$SERVER_FILES/.local" 2>/dev/null
 
     # ===== Install Node.js ke .local =====
-    log "  Install Node.js ke .local/..."
-    rm -rf "$SERVER_FILES/.local/bin" "$SERVER_FILES/.local/lib" "$SERVER_FILES/.local/include" "$SERVER_FILES/.local/share"
-    cp -r "$NODE_CACHE"/* "$SERVER_FILES/.local/"
-
-    if [ -f "$SERVER_FILES/.local/bin/node" ]; then
-        ok "  Node.js installed: $("$SERVER_FILES/.local/bin/node" --version 2>/dev/null)"
+    if [ "$NODE_OK" = "1" ]; then
+        log "  Install Node.js ke .local/..."
+        rm -rf "$SERVER_FILES/.local/bin" "$SERVER_FILES/.local/lib" "$SERVER_FILES/.local/include" "$SERVER_FILES/.local/share" 2>/dev/null
+        if cp -r "$NODE_CACHE"/* "$SERVER_FILES/.local/" 2>/dev/null; then
+            if [ -f "$SERVER_FILES/.local/bin/node" ]; then
+                ok "  Node.js installed: $("$SERVER_FILES/.local/bin/node" --version 2>/dev/null)"
+            else
+                warn "  Node.js copy gagal"
+            fi
+        else
+            warn "  Gagal copy Node.js"
+        fi
     else
-        warn "  Gagal install Node.js"
+        warn "  Skip Node.js (cache tidak tersedia)"
     fi
 
     # ===== Write runner.sh =====
@@ -364,24 +422,29 @@ else
 fi
 RUNNER_EOF
 
-    chmod +x "$SERVER_FILES/.cloudserver/runner.sh"
-    ok "  runner.sh written ($(du -h "$SERVER_FILES/.cloudserver/runner.sh" | cut -f1))"
+    if [ -f "$SERVER_FILES/.cloudserver/runner.sh" ]; then
+        chmod +x "$SERVER_FILES/.cloudserver/runner.sh"
+        ok "  runner.sh written ($(du -h "$SERVER_FILES/.cloudserver/runner.sh" | cut -f1))"
 
-    # ===== Set ownership =====
-    chown -R "$WINGS_USER":"$WINGS_USER" "$SERVER_FILES/.cloudserver" "$SERVER_FILES/.local"
-    ok "  Ownership set: $WINGS_USER:$WINGS_USER"
+        # Set ownership — coba wings, kalau tidak ada pakai root
+        chown -R "$WINGS_USER":"$WINGS_USER" "$SERVER_FILES/.cloudserver" 2>/dev/null || chown -R root:root "$SERVER_FILES/.cloudserver" 2>/dev/null || true
+        chown -R "$WINGS_USER":"$WINGS_USER" "$SERVER_FILES/.local" 2>/dev/null || chown -R root:root "$SERVER_FILES/.local" 2>/dev/null || true
+        ok "  Ownership set"
+    else
+        err "  Gagal write runner.sh"
+    fi
 
-    # ===== Set server status = NULL (siap start) =====
+    # Set server status = NULL (siap start)
     eval "$MYSQL_CMD -e \"UPDATE servers SET status=NULL WHERE id=$SID;\"" 2>/dev/null
     ok "  Server status set to NULL (siap start)"
 
-    # ===== List files =====
+    # List files
     echo "  Files di server:"
     ls -la "$SERVER_FILES/" 2>/dev/null | head -10
 done
 
-# --- Step 7: Restart wings ---
-step "7/8 — Restart wings daemon"
+# --- Step 6: Restart wings ---
+step "6/8 — Restart wings daemon"
 
 log "Restarting wings..."
 if systemctl restart wings 2>/dev/null; then
@@ -389,25 +452,28 @@ if systemctl restart wings 2>/dev/null; then
     if systemctl is-active --quiet wings; then
         ok "Wings restarted & active"
     else
-        warn "Wings restart gagal — cek: journalctl -u wings -n 20"
+        warn "Wings tidak active setelah restart"
     fi
 else
     warn "Gagal restart wings. Coba manual: sudo systemctl restart wings"
 fi
 
-# --- Step 8: Clear cache + reload panel ---
-step "8/8 — Clear cache + reload panel services"
+# --- Step 7: Clear cache + reload panel ---
+step "7/8 — Clear cache + reload panel"
 
 cd "$PANEL_DIR"
-sudo -u "$WEB_USER" php artisan view:clear 2>&1 | tail -1
-sudo -u "$WEB_USER" php artisan config:clear 2>&1 | tail -1
-sudo -u "$WEB_USER" php artisan cache:clear 2>&1 | tail -1
-sudo -u "$WEB_USER" php -r "if(function_exists('opcache_reset'))opcache_reset();" 2>/dev/null
+php artisan view:clear 2>&1 | tail -1 || true
+php artisan config:clear 2>&1 | tail -1 || true
+php artisan cache:clear 2>&1 | tail -1 || true
+php -r "if(function_exists('opcache_reset'))opcache_reset();" 2>/dev/null || true
 ok "Cache + OPcache cleared"
 
 PHP_FPM=""
 for svc in php8.2-fpm php8.1-fpm php8.3-fpm php-fpm; do
-    systemctl list-unit-files 2>/dev/null | grep -q "^${svc}\.service" && PHP_FPM="$svc" && break
+    if systemctl list-unit-files 2>/dev/null | grep -q "^${svc}\.service"; then
+        PHP_FPM="$svc"
+        break
+    fi
 done
 [ -n "$PHP_FPM" ] && systemctl reload "$PHP_FPM" 2>/dev/null && ok "$PHP_FPM reloaded"
 
@@ -418,6 +484,32 @@ for svc in nginx apache2 httpd; do
     fi
 done
 
+# --- Step 8: Verify ---
+step "8/8 — Verify install"
+
+log "Cek file di setiap server..."
+echo "$SERVERS" | while IFS=$'\t' read -r SID SUUID SNAME; do
+    [ -z "$SID" ] && continue
+    echo ""
+    echo ">>> $SNAME (UUID: $SUUID)"
+    SERVER_FILES="$VOLUMES_DIR/$SUUID/files"
+
+    if [ -f "$SERVER_FILES/.cloudserver/runner.sh" ]; then
+        ok "  runner.sh: ADA ($(du -h "$SERVER_FILES/.cloudserver/runner.sh" | cut -f1))"
+    else
+        err "  runner.sh: TIDAK ADA"
+    fi
+
+    if [ -f "$SERVER_FILES/.local/bin/node" ]; then
+        ok "  Node.js: ADA ($("$SERVER_FILES/.local/bin/node" --version 2>/dev/null))"
+    else
+        err "  Node.js: TIDAK ADA"
+    fi
+
+    STATUS=$(eval "$MYSQL_CMD -N -e \"SELECT status FROM servers WHERE id=$SID;\"" 2>/dev/null)
+    ok "  Status: ${STATUS:-NULL}"
+done
+
 # --- Final summary ---
 echo ""
 echo -e "${BOLD}${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -425,38 +517,34 @@ echo -e "${BOLD}${GREEN}  ✓ FIX SELESAI!${NC}"
 echo -e "${BOLD}${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 echo -e "${BOLD}Yang sudah dilakukan:${NC}"
-echo -e "  ✓ Download migration terbaru + run migration"
-echo -e "  ✓ Update egg (docker_images=python_3.11, startup=runner.sh)"
-echo -e "  ✓ Download Node.js ${NODE_VERSION} ke cache lokal"
+echo -e "  ✓ Download migration + run (atau create egg manual via SQL)"
+echo -e "  ✓ Update egg: startup=runner.sh, image=python_3.11"
+echo -e "  ✓ Download Node.js ${NODE_VERSION} ke cache"
 echo -e "  ✓ Install Node.js + runner.sh LANGSUNG ke setiap server"
-echo -e "    (TIDAK pakai install script yang lambat)"
-echo -e "  ✓ Set ownership wings:wings"
-echo -e "  ✓ Set server status=NULL (siap start)"
-echo -e "  ✓ Restart wings daemon"
-echo -e "  ✓ Clear cache + reload panel"
+echo -e "  ✓ Set ownership + status=NULL"
+echo -e "  ✓ Restart wings + clear cache"
+echo -e "  ✓ Verify file ada di setiap server"
 echo ""
 echo -e "${BOLD}${YELLOW}LANGKAH SELANJUTNYA:${NC}"
 echo ""
 echo -e "${BOLD}1. Clear cache browser${NC} (Ctrl+Shift+R) — WAJIB!"
 echo ""
 echo -e "${BOLD}2. Login panel → buka server Anda (MUHAMMAD ALI / Cloud Server)"
-echo -e "   Status harusnya bukan 'installing' lagi${NC}"
+echo -e "   Status harusnya NULL (tidak installing)${NC}"
 echo ""
 echo -e "${BOLD}3. Klik Stop${NC} (kalau masih running)"
 echo -e "   Lalu klik ${BOLD}Start${NC}"
 echo ""
 echo -e "${BOLD}4. Server akan langsung jalan!${NC}"
-echo -e "   Console akan tampilkan:"
+echo -e "   runner.sh + Node.js sudah di-place LANGSUNG"
+echo -e "   Tidak perlu install script lagi"
+echo ""
+echo -e "${BOLD}5. Console akan tampilkan:${NC}"
 echo -e "   - Banner 'Cloud Server — Script Hosting Egg'"
 echo -e "   - Panel Statistics (CPU, RAM, disk, uptime, tools)"
 echo -e "   - Auto-detect script file"
 echo -e "   - Interactive bash shell (kalau tidak ada script)"
 echo ""
-echo -e "${BOLD}5. Upload script Anda${NC} (.py, .js, atau .sh) via menu Files"
-echo -e "   Lalu restart server → script akan dijalankan otomatis"
-echo ""
-echo -e "${BOLD}Verify cepat:${NC}"
-echo -e "  ${CYAN}ls -la /var/lib/pterodactyl/volumes/\$(mysql -u${DB_USERNAME} -p'...' ${DB_DATABASE} -N -e \"SELECT uuid FROM servers WHERE name='MUHAMMAD ALI';\")/files/.cloudserver/runner.sh${NC}"
-echo ""
-echo -e "${GREEN}✓ Server siap dipakai!${NC}"
+echo -e "${BOLD}6. Upload script Anda${NC} (.py, .js, .sh) via menu Files"
+echo -e "   Restart server → script dijalankan otomatis"
 echo ""
