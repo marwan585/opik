@@ -154,11 +154,17 @@ echo -e "  Web server   : ${CYAN}${WEB_SERVER:-none}${NC}"
 echo -e "  Source       : ${CYAN}$REPO_URL${NC}"
 echo ""
 
-read -p "Lanjutkan install? (y/N) " -n 1 -r
-echo ""
-if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-    warn "Dibatalkan oleh user."
-    exit 0
+# Confirm — skip prompt if stdin is not a tty (e.g., curl | bash piping)
+if [ -t 0 ]; then
+    read -p "Lanjutkan install? (y/N) " -n 1 -r
+    echo ""
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        warn "Dibatalkan oleh user."
+        exit 0
+    fi
+else
+    warn "Stdin bukan tty (curl | bash) — lanjut otomatis tanpa konfirmasi."
+    warn "Untuk konfirmasi interaktif: download script dulu, lalu jalankan langsung."
 fi
 
 # --- Step 1: Enter maintenance mode ---
