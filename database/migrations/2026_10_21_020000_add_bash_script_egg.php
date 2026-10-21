@@ -72,6 +72,10 @@ return new class () extends Migration {
         // versi Pterodactyl ini. Jangan masukkan ke insert.
         // Kolom 'author' juga TIDAK mass-assignable lewat DB::table,
         // tapi ada di tabel — kita insert manual.
+        //
+        // Format docker_images: { "Label": "image:tag" }
+        // KEY = label (yang tampil di dropdown), VALUE = image URL.
+        // Jangan dibalik!
         $eggId = DB::table('eggs')->insertGetId([
             'nest_id' => $nestId,
             'uuid' => \Illuminate\Support\Str::uuid()->toString(),
@@ -80,7 +84,7 @@ return new class () extends Migration {
             'description' => 'Run Python, Node.js, or Bash scripts. Auto-detects script type by file extension (.py, .js, .sh). Auto-installs dependencies (pip/npm). Displays panel statistics on start. Drop into interactive shell if no script found.',
             'features' => json_encode([]),
             'docker_images' => json_encode([
-                'ghcr.io/parkervcp/yolks:debian' => 'Debian (Python 3 + Node.js 20 + Bash)',
+                'Debian (Python 3 + Node.js 20 + Bash)' => 'ghcr.io/parkervcp/yolks:debian',
             ]),
             'file_denylist' => json_encode([]),
             'config_files' => '{}',
@@ -113,7 +117,7 @@ return new class () extends Migration {
             'nest_id' => $nestId,
             'description' => 'Run Python, Node.js, or Bash scripts. Auto-detects script type by file extension (.py, .js, .sh). Auto-installs dependencies (pip/npm). Displays panel statistics on start. Drop into interactive shell if no script found.',
             'docker_images' => json_encode([
-                'ghcr.io/parkervcp/yolks:debian' => 'Debian (Python 3 + Node.js 20 + Bash)',
+                'Debian (Python 3 + Node.js 20 + Bash)' => 'ghcr.io/parkervcp/yolks:debian',
             ]),
             'startup' => $startup,
             'script_install' => $installScript,
