@@ -221,7 +221,7 @@ const LoginContainer = ({ history }: RouteComponentProps) => {
                 })}
             >
                 {({ isSubmitting, setSubmitting, submitForm }) => (
-                    <LoginFormContainer title={'Masuk ke akun Anda'} css={tw`w-full flex`}>
+                    <LoginFormContainer css={tw`w-full flex`}>
                         <InputGroup>
                             <Field
                                 type={'text'}

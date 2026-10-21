@@ -436,6 +436,16 @@ class TelegramBotService
                 $dockerImage = $egg->docker_images;
             }
 
+            // Build environment from egg variables' default values.
+            // Without this, server creation fails because required egg
+            // variables (e.g. SERVER_JARFILE, VANILLA_VERSION for Minecraft)
+            // have no value and validation throws.
+            $eggVariables = \Pterodactyl\Models\EggVariable::where('egg_id', $eggId)->get();
+            $environment = [];
+            foreach ($eggVariables as $var) {
+                $environment[$var->env_variable] = $var->default_value ?? '';
+            }
+
             $server = $this->serverCreationService->handle([
                 'name' => $username . '-server',
                 'description' => 'Dibuat via Telegram Bot oleh @' . ($tgUsername ?? 'unknown'),
@@ -451,7 +461,7 @@ class TelegramBotService
                 'cpu' => 0,
                 'startup' => $egg->startup,
                 'image' => $dockerImage,
-                'environment' => [],
+                'environment' => $environment,
                 'skip_scripts' => false,
                 'start_on_completion' => false,
             ]);
