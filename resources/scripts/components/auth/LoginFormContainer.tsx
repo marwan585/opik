@@ -9,199 +9,370 @@ type Props = React.DetailedHTMLProps<React.FormHTMLAttributes<HTMLFormElement>, 
 };
 
 /**
- * Cloud Server — Modern Login Container
+ * Cloud Server — Modern Professional Login Container
  *
- * Design language:
- *  - Glassmorphism card with gradient border + soft shadow.
- *  - Animated aurora background blobs (indigo + cyan + purple).
- *  - Centered cloud icon with glow effect.
- *  - Modern title + subtitle typography.
- *  - Responsive: card shrinks on mobile, blobs stay subtle.
+ * Design language (v2 — polished):
+ *  - Split-screen on desktop: left = brand showcase panel with
+ *    animated grid + glow, right = clean login form.
+ *  - Mobile: single card with brand header + form.
+ *  - Subtle aurora gradient background (calmer, not distracting).
+ *  - Modern typography: large brand wordmark, light subtitle.
+ *  - Card has soft border, layered shadow, no harsh corners.
+ *  - No spinning icons — keep it professional.
  */
 
-const fadeInUp = keyframes`
-    from { opacity: 0; transform: translateY(20px); }
+const fadeIn = keyframes`
+    from { opacity: 0; }
+    to   { opacity: 1; }
+`;
+
+const slideUp = keyframes`
+    from { opacity: 0; transform: translateY(16px); }
     to   { opacity: 1; transform: translateY(0); }
 `;
 
-const auroraShift = keyframes`
-    0%   { transform: translate(0%, 0%) scale(1); opacity: 0.45; }
-    50%  { transform: translate(20%, 30%) scale(1.2); opacity: 0.65; }
-    100% { transform: translate(0%, 0%) scale(1); opacity: 0.45; }
+const glowPulse = keyframes`
+    0%, 100% { opacity: 0.6; }
+    50%      { opacity: 1; }
 `;
 
-const pulse = keyframes`
-    0%, 100% { opacity: 1; transform: scale(1); }
-    50%      { opacity: 0.7; transform: scale(1.05); }
-`;
-
-const Container = styled.div`
+const PageShell = styled.div`
     position: relative;
     min-height: 100vh;
     display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 24px 16px;
     background:
-        radial-gradient(circle at 15% 20%, rgba(99, 102, 241, 0.25) 0%, transparent 50%),
-        radial-gradient(circle at 85% 80%, rgba(6, 182, 212, 0.18) 0%, transparent 50%),
-        linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%);
+        radial-gradient(ellipse at top left, rgba(99, 102, 241, 0.15) 0%, transparent 50%),
+        radial-gradient(ellipse at bottom right, rgba(6, 182, 212, 0.10) 0%, transparent 50%),
+        linear-gradient(135deg, #0b1020 0%, #0f172a 50%, #0b1020 100%);
     overflow: hidden;
+    animation: ${fadeIn} 0.4s ease-out;
 `;
 
-const AuroraBlob1 = styled.div`
-    position: absolute;
-    top: -10%;
-    left: 60%;
-    width: 420px;
-    height: 420px;
-    border-radius: 50%;
-    background: radial-gradient(circle, rgba(99, 102, 241, 0.5) 0%, transparent 70%);
-    filter: blur(40px);
-    animation: ${auroraShift} 14s ease-in-out infinite;
-    pointer-events: none;
-    z-index: 0;
-`;
-
-const AuroraBlob2 = styled.div`
-    position: absolute;
-    top: 50%;
-    left: -15%;
-    width: 360px;
-    height: 360px;
-    border-radius: 50%;
-    background: radial-gradient(circle, rgba(6, 182, 212, 0.4) 0%, transparent 70%);
-    filter: blur(40px);
-    animation: ${auroraShift} 14s ease-in-out infinite;
-    animation-delay: 4s;
-    pointer-events: none;
-    z-index: 0;
-`;
-
-const AuroraBlob3 = styled.div`
-    position: absolute;
-    top: 70%;
-    left: 70%;
-    width: 300px;
-    height: 300px;
-    border-radius: 50%;
-    background: radial-gradient(circle, rgba(139, 92, 246, 0.3) 0%, transparent 70%);
-    filter: blur(40px);
-    animation: ${auroraShift} 14s ease-in-out infinite;
-    animation-delay: 7s;
-    pointer-events: none;
-    z-index: 0;
-`;
-
-const Card = styled.div`
+// ===== Left showcase panel (desktop only) =====
+const ShowcasePanel = styled.div`
+    display: none;
+    flex: 1.2;
     position: relative;
-    z-index: 10;
-    width: 100%;
-    max-width: 460px;
-    padding: 40px 36px 32px;
-    border-radius: 22px;
-    background: linear-gradient(180deg, rgba(30, 41, 59, 0.92) 0%, rgba(15, 23, 42, 0.96) 100%);
-    border: 1px solid rgba(129, 140, 248, 0.2);
-    box-shadow:
-        0 24px 60px -16px rgba(0, 0, 0, 0.65),
-        0 0 0 1px rgba(255, 255, 255, 0.04),
-        inset 0 1px 0 rgba(255, 255, 255, 0.06);
-    backdrop-filter: blur(20px);
-    animation: ${fadeInUp} 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+    padding: 56px 64px;
+    flex-direction: column;
+    justify-content: space-between;
+    overflow: hidden;
 
-    @media (max-width: 480px) {
-        padding: 28px 22px 22px;
-        border-radius: 18px;
+    @media (min-width: 1024px) {
+        display: flex;
     }
 `;
 
-const BrandBlock = styled.div`
-    text-align: center;
-    margin-bottom: 24px;
+const GridOverlay = styled.div`
+    position: absolute;
+    inset: 0;
+    background-image:
+        linear-gradient(rgba(129, 140, 248, 0.06) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(129, 140, 248, 0.06) 1px, transparent 1px);
+    background-size: 60px 60px;
+    background-position: center;
+    mask-image: radial-gradient(ellipse at center, black 30%, transparent 70%);
+    -webkit-mask-image: radial-gradient(ellipse at center, black 30%, transparent 70%);
+    pointer-events: none;
 `;
 
-const CloudIconWrap = styled.div`
+const GlowOrb = styled.div`
+    position: absolute;
+    top: 20%;
+    right: -10%;
+    width: 480px;
+    height: 480px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(99, 102, 241, 0.35) 0%, transparent 70%);
+    filter: blur(60px);
+    animation: ${glowPulse} 6s ease-in-out infinite;
+    pointer-events: none;
+`;
+
+const ShowcaseContent = styled.div`
+    position: relative;
+    z-index: 2;
+    max-width: 480px;
+    animation: ${slideUp} 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.1s both;
+`;
+
+const ShowcaseLogo = styled.div`
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 14px;
+    border-radius: 12px;
+    background: rgba(15, 23, 42, 0.6);
+    border: 1px solid rgba(129, 140, 248, 0.2);
+    margin-bottom: 36px;
+    backdrop-filter: blur(8px);
+
+    svg {
+        width: 22px;
+        height: 22px;
+        color: #818cf8;
+    }
+
+    span {
+        font-size: 14px;
+        font-weight: 600;
+        color: #e2e8f0;
+        letter-spacing: 0.01em;
+    }
+`;
+
+const ShowcaseHeadline = styled.h1`
+    margin: 0 0 18px;
+    font-size: 44px;
+    font-weight: 800;
+    color: #ffffff;
+    line-height: 1.15;
+    letter-spacing: -0.025em;
+`;
+
+const ShowcaseSubtitle = styled.p`
+    margin: 0 0 36px;
+    font-size: 16px;
+    line-height: 1.65;
+    color: #94a3b8;
+    max-width: 420px;
+`;
+
+const FeatureList = styled.ul`
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+`;
+
+const FeatureItem = styled.li`
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    color: #cbd5e1;
+    font-size: 14px;
+    line-height: 1.5;
+
+    svg {
+        flex-shrink: 0;
+        width: 20px;
+        height: 20px;
+        color: #34d399;
+        margin-top: 1px;
+    }
+
+    strong {
+        display: block;
+        color: #f1f5f9;
+        font-weight: 600;
+        margin-bottom: 2px;
+    }
+`;
+
+const ShowcaseFooter = styled.div`
+    position: relative;
+    z-index: 2;
+    color: #475569;
+    font-size: 12px;
+    letter-spacing: 0.04em;
+`;
+
+// ===== Right form panel =====
+const FormPanel = styled.div`
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 32px 20px;
+    position: relative;
+    z-index: 1;
+`;
+
+const FormCard = styled.div`
+    width: 100%;
+    max-width: 420px;
+    animation: ${slideUp} 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+`;
+
+const MobileBrand = styled.div`
+    text-align: center;
+    margin-bottom: 28px;
+
+    @media (min-width: 1024px) {
+        display: none;
+    }
+`;
+
+const MobileLogo = styled.div`
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 64px;
-    height: 64px;
-    border-radius: 18px;
-    background: linear-gradient(135deg, rgba(99, 102, 241, 0.25) 0%, rgba(6, 182, 212, 0.18) 100%);
-    border: 1px solid rgba(129, 140, 248, 0.35);
+    width: 56px;
+    height: 56px;
+    border-radius: 16px;
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.22) 0%, rgba(6, 182, 212, 0.15) 100%);
+    border: 1px solid rgba(129, 140, 248, 0.3);
     margin-bottom: 14px;
-    box-shadow: 0 8px 24px -8px rgba(99, 102, 241, 0.5);
 
     svg {
-        width: 32px;
-        height: 32px;
+        width: 28px;
+        height: 28px;
         color: #c7d2fe;
-        animation: ${pulse} 3s ease-in-out infinite;
     }
 `;
 
-const BrandTitle = styled.h1`
+const MobileBrandName = styled.h1`
     margin: 0 0 4px;
     font-size: 22px;
-    font-weight: 800;
+    font-weight: 700;
     color: #ffffff;
     letter-spacing: -0.01em;
 `;
 
-const BrandSubtitle = styled.p`
+const MobileTagline = styled.p`
     margin: 0;
     font-size: 13px;
     color: #94a3b8;
-    letter-spacing: 0.01em;
 `;
 
-const FormTitle = styled.h2`
-    margin: 0 0 16px;
+const DesktopHeader = styled.div`
+    display: none;
+    margin-bottom: 32px;
+
+    @media (min-width: 1024px) {
+        display: block;
+    }
+`;
+
+const DesktopTitle = styled.h2`
+    margin: 0 0 8px;
+    font-size: 28px;
+    font-weight: 700;
+    color: #ffffff;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+`;
+
+const DesktopSubtitle = styled.p`
+    margin: 0;
+    font-size: 14px;
+    color: #94a3b8;
+    line-height: 1.5;
+`;
+
+const FormTitle = styled.h3`
+    margin: 0 0 20px;
     font-size: 18px;
     font-weight: 600;
     color: #e2e8f0;
-    text-align: center;
     letter-spacing: -0.01em;
+
+    @media (min-width: 1024px) {
+        display: none;
+    }
 `;
 
 const FooterText = styled.p`
     text-align: center;
-    margin: 24px 0 0;
+    margin: 28px 0 0;
     font-size: 11px;
     color: #64748b;
-    letter-spacing: 0.02em;
+    letter-spacing: 0.03em;
 `;
 
+const FormBody = styled.div``;
+
 export default forwardRef<HTMLFormElement, Props>(({ title, ...props }, ref) => (
-    <Container>
-        <AuroraBlob1 />
-        <AuroraBlob2 />
-        <AuroraBlob3 />
-        <Card>
-            <BrandBlock>
-                <CloudIconWrap>
+    <PageShell>
+        {/* ===== LEFT: showcase (desktop only) ===== */}
+        <ShowcasePanel>
+            <GridOverlay />
+            <GlowOrb />
+            <ShowcaseContent>
+                <ShowcaseLogo>
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15a4.5 4.5 0 004.5 4.5H18a3.75 3.75 0 001.332-7.257 3 3 0 00-3.758-3.848 5.25 5.25 0 00-10.233 2.33A4.502 4.502 0 002.25 15z" />
                     </svg>
-                </CloudIconWrap>
-                <BrandTitle>Cloud Server</BrandTitle>
-                <BrandSubtitle>Game Server Management Panel</BrandSubtitle>
-            </BrandBlock>
+                    <span>Cloud Server</span>
+                </ShowcaseLogo>
+                <ShowcaseHeadline>
+                    Kelola server game Anda dengan mudah.
+                </ShowcaseHeadline>
+                <ShowcaseSubtitle>
+                    Panel kontrol modern dengan monitoring real-time,
+                    manajemen file bawaan, dan integrasi Telegram Bot untuk
+                    auto-deploy server baru dalam hitungan detik.
+                </ShowcaseSubtitle>
+                <FeatureList>
+                    <FeatureItem>
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                        <div>
+                            <strong>Auto-Deploy via Telegram</strong>
+                            Buat panel baru lewat bot, langsung jalan.
+                        </div>
+                    </FeatureItem>
+                    <FeatureItem>
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                        <div>
+                            <strong>Monitoring Real-Time</strong>
+                            CPU, RAM, disk — semua terpantau live.
+                        </div>
+                    </FeatureItem>
+                    <FeatureItem>
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                        <div>
+                            <strong>Manajemen Akses Granular</strong>
+                            Subuser, schedule, backup — semua di satu tempat.
+                        </div>
+                    </FeatureItem>
+                </FeatureList>
+            </ShowcaseContent>
+            <ShowcaseFooter>
+                &copy; {new Date().getFullYear()} Cloud Server Panel
+            </ShowcaseFooter>
+        </ShowcasePanel>
 
-            {title && <FormTitle>{title}</FormTitle>}
+        {/* ===== RIGHT: form ===== */}
+        <FormPanel>
+            <FormCard>
+                <MobileBrand>
+                    <MobileLogo>
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15a4.5 4.5 0 004.5 4.5H18a3.75 3.75 0 001.332-7.257 3 3 0 00-3.758-3.848 5.25 5.25 0 00-10.233 2.33A4.502 4.502 0 002.25 15z" />
+                        </svg>
+                    </MobileLogo>
+                    <MobileBrandName>Cloud Server</MobileBrandName>
+                    <MobileTagline>Game Server Management Panel</MobileTagline>
+                </MobileBrand>
 
-            <FlashMessageRender css={tw`mb-4`} />
+                <DesktopHeader>
+                    <DesktopTitle>Selamat datang kembali</DesktopTitle>
+                    <DesktopSubtitle>Masuk ke akun Anda untuk mengelola server.</DesktopSubtitle>
+                </DesktopHeader>
 
-            <Form {...props} ref={ref}>
-                {props.children}
-            </Form>
+                {title && <FormTitle>{title}</FormTitle>}
 
-            <FooterText>
-                &copy; {new Date().getFullYear()}&nbsp;
-                <a rel={'noopener nofollow noreferrer'} href={'#'} target={'_blank'} css={tw`no-underline text-neutral-500 hover:text-neutral-300`}>
-                    Cloud Server Panel
-                </a>
-            </FooterText>
-        </Card>
-    </Container>
+                <FlashMessageRender css={tw`mb-4`} />
+
+                <Form {...props} ref={ref}>
+                    <FormBody>{props.children}</FormBody>
+                </Form>
+
+                <FooterText>
+                    &copy; {new Date().getFullYear()}&nbsp;
+                    <a rel={'noopener nofollow noreferrer'} href={'#'} target={'_blank'} css={tw`no-underline text-neutral-500 hover:text-neutral-300`}>
+                        Cloud Server Panel
+                    </a>
+                </FooterText>
+            </FormCard>
+        </FormPanel>
+    </PageShell>
 ));
