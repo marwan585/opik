@@ -414,40 +414,53 @@ STARTUP;
 #!/bin/bash
 # Cloud Server — Bash Script Egg Installation
 # Image: ghcr.io/parkervcp/installers:debian
+#
+# PENTING: Install script ini TIDAK install package apapun via apt-get.
+# Image runtime (ghcr.io/parkervcp/yolks:debian) SUDAH punya:
+#   - Python 3 + pip3
+#   - Node.js 20 + npm
+#   - git, curl, bash, ca-certificates
+#
+# Jika kita apt-get install nodejs npm di sini, apt akan download
+# ratusan MB dependencies Debian (node-esrecurse, node-*, dll) dan
+# bisa makan 30+ menit. Itu yang bikin install stuck 1 jam.
+#
+# Install script ini cukup:
+# 1. Pastikan folder /mnt/server ada
+# 2. Print info bahwa installation complete
+# 3. Exit (langsung selesai dalam <1 detik)
 
-apt-get update -y
-apt-get install -y --no-install-recommends curl ca-certificates python3 python3-pip nodejs npm git bash
+set -e
 
-# Verify installations
-echo "Python version:"
-python3 --version 2>&1 || echo "WARNING: python3 not installed"
+# Pastikan folder server ada
+mkdir -p /mnt/server
+cd /mnt/server
 
-echo "Node.js version:"
-node --version 2>&1 || echo "WARNING: node not installed"
-
-echo "npm version:"
-npm --version 2>&1 || echo "WARNING: npm not installed"
-
-echo "pip3 version:"
-pip3 --version 2>&1 || echo "WARNING: pip3 not installed"
-
-# Clean apt cache
-apt-get clean
-rm -rf /var/lib/apt/lists/*
-
+# Print info
 echo ""
 echo "=============================================="
+echo "  Cloud Server — Bash Script Egg"
 echo "  Installation complete!"
 echo "=============================================="
 echo ""
-echo "Python, Node.js, dan tools sudah terinstall."
-echo "Upload script Anda (.py, .js, atau .sh) ke"
-echo "/home/container via Files menu di panel."
+echo "Runtime image sudah pre-installed dengan:"
+echo "  - Python 3 + pip3"
+echo "  - Node.js 20 + npm"
+echo "  - git, curl, bash"
 echo ""
-echo "Saat server start, script akan auto-detect dan"
-echo "dijalankan. Dependencies (requirements.txt atau"
-echo "package.json) akan auto-install."
+echo "Tidak perlu apt-get install — image runtime sudah lengkap."
 echo ""
+echo "Cara pakai:"
+echo "  1. Upload script Anda (.py, .js, atau .sh) ke folder"
+echo "     /home/container via menu Files di panel"
+echo "  2. Start server di menu Console"
+echo "  3. Script akan auto-detect dan dijalankan"
+echo "  4. Dependencies (requirements.txt / package.json) akan"
+echo "     auto-install saat start (jika AUTO_INSTALL=1)"
+echo ""
+echo "=============================================="
+
+exit 0
 INSTALL;
     }
 

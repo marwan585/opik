@@ -179,6 +179,30 @@ if [ -n "$NEST_ID" ]; then
     ok "Nest 'Script Hosting' sudah ada (id=$NEST_ID) — akan dipakai ulang"
 fi
 
+# Cari server yang pakai egg Bash Script (yang mungkin stuck install)
+log "Cari server yang pakai egg Bash Script..."
+STUCK_SERVERS=$(eval "$MYSQL_CMD -N -e \"SELECT id, name, status FROM servers WHERE egg_id IN (SELECT id FROM eggs WHERE name='Bash Script (Python/Node.js)') OR name LIKE '%bash%' OR name LIKE '%script%' LIMIT 20;\"" 2>/dev/null || echo "")
+
+if [ -n "$STUCK_SERVERS" ]; then
+    ok "Server yang pakai egg Bash Script:"
+    echo "$STUCK_SERVERS" | while IFS=$'\t' read -r sid sname sstatus; do
+        if [ -n "$sid" ]; then
+            echo "  • ID=$sid  name='$sname'  status='$sstatus'"
+        fi
+    done
+
+    log "Reset status server yang stuck install (status='installing') ke null..."
+    UPDATED=$(eval "$MYSQL_CMD -N -e \"UPDATE servers SET status=NULL WHERE status='installing' AND (egg_id IN (SELECT id FROM eggs WHERE name='Bash Script (Python/Node.js)') OR name LIKE '%bash%' OR name LIKE '%script%');\"" 2>/dev/null && echo "ok" || echo "fail")
+
+    if [ "$UPDATED" = "ok" ]; then
+        ok "✓ Server yang stuck install sudah di-reset (bisa start ulang)"
+    else
+        warn "Tidak bisa reset status server — lanjut saja"
+    fi
+else
+    ok "Tidak ada server yang pakai egg Bash Script — skip"
+fi
+
 # --- Step 4: Reset migration status ---
 step "4/6 — Reset migration status"
 
