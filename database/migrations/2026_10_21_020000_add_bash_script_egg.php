@@ -65,15 +65,13 @@ return new class () extends Migration {
         $now = now();
 
         // Startup script: auto-detect script type, show stats, run script
-        // The startup is a bash script that:
-        // 1. Prints panel stats (CPU/RAM/uptime)
-        // 2. Detects script file (auto-run.sh, main.py, app.py, index.js, server.js, script.sh)
-        // 3. Auto-installs dependencies (pip install / npm install)
-        // 4. Runs the script
-        // 5. Drops into interactive shell if no script found (so user can run commands)
         $startup = $this->getStartupScript();
         $installScript = $this->getInstallScript();
 
+        // Note: kolom 'tags' dan 'update_url' TIDAK ada di tabel eggs
+        // versi Pterodactyl ini. Jangan masukkan ke insert.
+        // Kolom 'author' juga TIDAK mass-assignable lewat DB::table,
+        // tapi ada di tabel — kita insert manual.
         $eggId = DB::table('eggs')->insertGetId([
             'nest_id' => $nestId,
             'uuid' => \Illuminate\Support\Str::uuid()->toString(),
@@ -99,7 +97,6 @@ return new class () extends Migration {
             'script_entry' => 'bash',
             'script_container' => 'ghcr.io/parkervcp/installers:debian',
             'copy_script_from' => null,
-            'tags' => json_encode(['script', 'python', 'nodejs', 'bash']),
             'created_at' => $now,
             'updated_at' => $now,
         ]);
@@ -141,7 +138,6 @@ return new class () extends Migration {
                 'user_viewable' => true,
                 'user_editable' => true,
                 'rules' => 'nullable|string|max:255',
-                'field_type' => 'text',
             ],
             [
                 'name' => 'Script Arguments',
@@ -151,7 +147,6 @@ return new class () extends Migration {
                 'user_viewable' => true,
                 'user_editable' => true,
                 'rules' => 'nullable|string|max:1000',
-                'field_type' => 'text',
             ],
             [
                 'name' => 'Auto-Install Dependencies',
@@ -161,7 +156,6 @@ return new class () extends Migration {
                 'user_viewable' => true,
                 'user_editable' => true,
                 'rules' => 'required|boolean',
-                'field_type' => 'text',
             ],
             [
                 'name' => 'Show Panel Stats',
@@ -171,7 +165,6 @@ return new class () extends Migration {
                 'user_viewable' => true,
                 'user_editable' => true,
                 'rules' => 'required|boolean',
-                'field_type' => 'text',
             ],
             [
                 'name' => 'Interactive Shell on Exit',
@@ -181,7 +174,6 @@ return new class () extends Migration {
                 'user_viewable' => true,
                 'user_editable' => true,
                 'rules' => 'required|boolean',
-                'field_type' => 'text',
             ],
             [
                 'name' => 'Python Version',
@@ -191,7 +183,6 @@ return new class () extends Migration {
                 'user_viewable' => true,
                 'user_editable' => true,
                 'rules' => 'required|string|max:50',
-                'field_type' => 'text',
             ],
             [
                 'name' => 'Node.js Version',
@@ -201,7 +192,6 @@ return new class () extends Migration {
                 'user_viewable' => true,
                 'user_editable' => true,
                 'rules' => 'required|string|max:50',
-                'field_type' => 'text',
             ],
             [
                 'name' => 'Stats Refresh Interval',
@@ -211,7 +201,6 @@ return new class () extends Migration {
                 'user_viewable' => true,
                 'user_editable' => true,
                 'rules' => 'required|numeric|min:0|max:3600',
-                'field_type' => 'text',
             ],
         ];
 
