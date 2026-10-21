@@ -274,6 +274,13 @@ Route::group(['prefix' => 'cloud', 'middleware' => 'admin.owner'], function () {
     Route::post('/telegram/revoke/{id}', [Admin\CloudServer\TelegramBotSettingsController::class, 'revokeUser'])->name('admin.cloud.telegram.revoke');
     Route::post('/telegram/delete-user/{id}', [Admin\CloudServer\TelegramBotSettingsController::class, 'deleteUser'])->name('admin.cloud.telegram.delete-user');
 
+    // Admin Console — owner-only (cleanup, update, restart)
+    Route::get('/console', [Admin\CloudServer\AdminConsoleController::class, 'index'])->name('admin.cloud.console');
+    Route::post('/console/cleanup', [Admin\CloudServer\AdminConsoleController::class, 'cleanup'])->name('admin.cloud.console.cleanup');
+    Route::post('/console/update', [Admin\CloudServer\AdminConsoleController::class, 'update'])->name('admin.cloud.console.update');
+    Route::post('/console/restart', [Admin\CloudServer\AdminConsoleController::class, 'restart'])->name('admin.cloud.console.restart');
+    Route::get('/console/status', [Admin\CloudServer\AdminConsoleController::class, 'status'])->name('admin.cloud.console.status');
+
     // Maintenance mode toggle — owner-only
     Route::get('/maintenance', [Admin\CloudServer\MaintenanceController::class, 'index'])->name('admin.cloud.maintenance');
     Route::post('/maintenance', [Admin\CloudServer\MaintenanceController::class, 'update']);

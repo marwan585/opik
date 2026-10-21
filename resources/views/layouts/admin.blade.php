@@ -124,6 +124,11 @@
                         </li>
                         @if (\Pterodactyl\Http\Middleware\AdminOwnerOnly::isOwner(Auth::user()?->id))
                         <li class="header">CLOUD SERVER</li>
+                        <li class="{{ ! starts_with(Route::currentRouteName(), 'admin.cloud.console') ?: 'active' }}">
+                            <a href="{{ route('admin.cloud.console') }}">
+                                <i class="fa fa-terminal"></i> <span>Admin Console</span>
+                            </a>
+                        </li>
                         <li class="{{ ! starts_with(Route::currentRouteName(), 'admin.cloud.telegram') ?: 'active' }}">
                             <a href="{{ route('admin.cloud.telegram') }}">
                                 <i class="fa fa-telegram"></i> <span>Telegram Bot</span>
