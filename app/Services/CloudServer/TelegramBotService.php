@@ -403,6 +403,8 @@ class TelegramBotService
                 'username' => $username,
                 'email' => $email,
                 'password' => $password,
+                'name_first' => $username,
+                'name_last' => '(TG)',
                 'root_admin' => false,
                 'language' => 'en',
             ]);

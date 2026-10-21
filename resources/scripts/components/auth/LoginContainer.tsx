@@ -28,7 +28,7 @@ interface Values {
  */
 
 const InputGroup = styled.div`
-    margin-bottom: 18px;
+    margin-bottom: 16px;
 
     label {
         display: block;
@@ -51,6 +51,7 @@ const InputGroup = styled.div`
         outline: none;
         transition: all 0.18s ease;
         font-family: inherit;
+        box-sizing: border-box;
 
         &::placeholder {
             color: #64748b;
@@ -140,7 +141,7 @@ const SpinnerWrap = styled.div`
 const BottomRow = styled.div`
     display: flex;
     justify-content: flex-end;
-    margin-top: 14px;
+    margin: -4px 0 16px;
 
     a {
         font-size: 12px;
@@ -242,18 +243,16 @@ const LoginContainer = ({ history }: RouteComponentProps) => {
                         <BottomRow>
                             <Link to={'/auth/password'}>Lupa password?</Link>
                         </BottomRow>
-                        <div css={tw`mt-5`}>
-                            <SubmitButton type={'submit'} disabled={isSubmitting}>
-                                {isSubmitting ? (
-                                    <>
-                                        <SpinnerWrap />
-                                        <span>Memproses...</span>
-                                    </>
-                                ) : (
-                                    <span>Masuk</span>
-                                )}
-                            </SubmitButton>
-                        </div>
+                        <SubmitButton type={'submit'} disabled={isSubmitting}>
+                            {isSubmitting ? (
+                                <>
+                                    <SpinnerWrap />
+                                    <span>Memproses...</span>
+                                </>
+                            ) : (
+                                <span>Masuk</span>
+                            )}
+                        </SubmitButton>
                         {recaptchaEnabled && (
                             <Reaptcha
                                 ref={ref}
